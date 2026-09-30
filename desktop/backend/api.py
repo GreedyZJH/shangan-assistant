@@ -50,6 +50,32 @@ def _ms_to_date_label(ms: int | None) -> str:
     return f"{d.month}月{d.day}日复习"
 
 
+def _mastery_eff(mastery: int, last_review_at: int | None,
+                 status: str = "active") -> int:
+    """掌握度随时间衰减的"当前值"：复习后按 1%/天 缓慢回落，最低保留 55%。
+    已掌握（mastered）不衰减；从未复习过的新错题不衰减。"""
+    mastery = int(mastery or 0)
+    if status != "active" or not last_review_at:
+        return mastery
+    days = max(0.0, (storage.now_ms() - last_review_at) / 86400000)
+    factor = max(0.55, 1 - days / 60)
+    return max(1, round(mastery * factor))
+
+
+def _wrong_row(r: sqlite3.Row) -> dict:
+    """wrong_questions 行 → 前端字典（解析选项、掌握度衰减、复习日期标签）。"""
+    d = dict(r)
+    try:
+        d["options"] = json.loads(r["options_json"] or "[]")
+    except ValueError:
+        d["options"] = []
+    d["nextReviewLabel"] = _ms_to_date_label(r["next_review_at"])
+    d["masteryEff"] = _mastery_eff(r["mastery"], r["last_review_at"],
+                                   r["status"] or "active")
+    d.pop("options_json", None)
+    return d
+
+
 # ================================================================== 初始化 ==
 def app_init() -> dict:
     model = storage.get_setting("model")
@@ -58,6 +84,10 @@ def app_init() -> dict:
     cookie_set = bool(storage.get_setting("fenbi_cookie").strip())
     wrong_active = storage.query_one(
         "SELECT COUNT(*) c FROM wrong_questions WHERE status='active'")["c"]
+    due_review = storage.query_one(
+        "SELECT COUNT(*) c FROM wrong_questions WHERE status='active' "
+        "AND next_review_at IS NOT NULL AND next_review_at<=?",
+        (storage.now_ms(),))["c"]
     notes_n = storage.query_one("SELECT COUNT(*) c FROM notes")["c"]
     today_tasks = storage.query_one(
         "SELECT COUNT(*) c FROM tasks WHERE date=? AND status='done'",
@@ -73,7 +103,8 @@ def app_init() -> dict:
         "general": general,
         "privacy": privacy,
         "cookieSet": cookie_set,
-        "counts": {"wrongActive": wrong_active, "notes": notes_n,
+        "counts": {"wrongActive": wrong_active, "dueReview": due_review,
+                   "notes": notes_n,
                    "todayTasksDone": today_tasks,
                    "todayQuestions": today_questions,
                    "streak": reports._streak()},
@@ -365,7 +396,8 @@ def practice_history_detail(session_id: int) -> dict:
 
 
 # ================================================================== 错题 ====
-def wrong_list(query: str = "", status: str = "active", module: str = "") -> list[dict]:
+def wrong_list(query: str = "", status: str = "active", module: str = "",
+               sort: str = "due") -> list[dict]:
     sql = "SELECT * FROM wrong_questions WHERE status=?"
     params: list = [status]
     if module:
@@ -374,26 +406,55 @@ def wrong_list(query: str = "", status: str = "active", module: str = "") -> lis
     if query:
         sql += " AND (content_html LIKE ? OR keypoint LIKE ?)"
         params += [f"%{query}%", f"%{query}%"]
-    sql += " ORDER BY COALESCE(next_review_at,0) ASC, id ASC"
     rows = storage.query(sql, tuple(params))
-    out = []
-    for r in rows:
-        d = dict(r)
-        try:
-            d["options"] = json.loads(r["options_json"] or "[]")
-        except ValueError:
-            d["options"] = []
-        d["nextReviewLabel"] = _ms_to_date_label(r["next_review_at"])
-        d.pop("options_json", None)
-        out.append(d)
+    out = [_wrong_row(r) for r in rows]
+    if sort == "mastery":
+        # 掌握度低的排前面（最弱的先练），同分按复习时间
+        out.sort(key=lambda d: (d["masteryEff"],
+                                d["next_review_at"] or 0, d["id"]))
+    else:
+        out.sort(key=lambda d: (d["next_review_at"] or 0, d["id"]))
     return out
+
+
+def wrong_due_list(limit: int = 50) -> list[dict]:
+    """今日到期复习队列：active 且 next_review_at<=现在，按到期先后排序。"""
+    limit = max(1, min(int(limit), 200))
+    rows = storage.query(
+        "SELECT * FROM wrong_questions WHERE status='active' "
+        "AND next_review_at IS NOT NULL AND next_review_at<=? "
+        "ORDER BY next_review_at ASC LIMIT ?",
+        (storage.now_ms(), limit))
+    return [_wrong_row(r) for r in rows]
 
 
 def wrong_modules() -> list[dict]:
     rows = storage.query(
-        "SELECT module_name, COUNT(*) c FROM wrong_questions "
-        "WHERE status='active' GROUP BY module_name ORDER BY c DESC")
-    return [{"name": r["module_name"] or "未分类", "count": r["c"]} for r in rows]
+        "SELECT module_name, COUNT(*) c, COALESCE(ROUND(AVG(mastery)),0) am "
+        "FROM wrong_questions WHERE status='active' "
+        "GROUP BY module_name ORDER BY c DESC")
+    return [{"name": r["module_name"] or "未分类", "count": r["c"],
+             "mastery": int(r["am"] or 0)} for r in rows]
+
+
+def weak_points(limit: int = 3) -> list[dict]:
+    """最薄弱知识点 TOP N：按本地作答记录聚合，正确率低者优先。
+
+    每个考点至少 4 次作答才参与（样本太少不准确），错题数作次级排序。"""
+    limit = max(1, min(int(limit), 5))
+    rows = storage.query(
+        "SELECT keypoint, COALESCE(MAX(module_name),'') module_name,"
+        " COUNT(*) attempts, COALESCE(SUM(correct),0) correct,"
+        " (SELECT COUNT(*) FROM wrong_questions w"
+        "  WHERE w.keypoint=question_results.keypoint) wc"
+        " FROM question_results WHERE COALESCE(keypoint,'')<>''"
+        " GROUP BY keypoint HAVING COUNT(*)>=4"
+        " ORDER BY SUM(correct)*100.0/COUNT(*) ASC, wc DESC LIMIT ?",
+        (limit,))
+    return [{"keypoint": r["keypoint"], "moduleName": r["module_name"] or "",
+             "attempts": r["attempts"],
+             "accuracy": round(r["correct"] * 100 / r["attempts"]) if r["attempts"] else 0,
+             "wrongCount": r["wc"]} for r in rows]
 
 
 def wrong_record_answer(payload: dict | None = None) -> dict:
@@ -418,9 +479,20 @@ def wrong_action(wrong_id: int, action: str) -> dict:
         raise RuntimeError("错题不存在。")
     t = storage.now_ms()
     if action == "review":
+        # 复习答对：掌握度提升，间隔拉长（艾宾浩斯 1/3/7/15 天阶梯）
         mastery = min(95, (row["mastery"] or 0) + 25)
-        days = 1 if mastery <= 40 else (3 if mastery <= 70 else 7)
+        days = (1 if mastery <= 40 else
+                3 if mastery <= 70 else
+                7 if mastery <= 85 else 15)
         nxt = t + days * 86400 * 1000
+        storage.execute(
+            "UPDATE wrong_questions SET mastery=?,last_review_at=?,next_review_at=? "
+            "WHERE id=?", (mastery, t, nxt, wrong_id))
+        return {"mastery": mastery, "nextReviewLabel": _ms_to_date_label(nxt)}
+    if action == "fail":
+        # 复习答错：掌握度回撤，明天再来（重学一轮）
+        mastery = max(20, (row["mastery"] or 0) - 30)
+        nxt = t + 86400 * 1000
         storage.execute(
             "UPDATE wrong_questions SET mastery=?,last_review_at=?,next_review_at=? "
             "WHERE id=?", (mastery, t, nxt, wrong_id))
@@ -1240,9 +1312,15 @@ SYS_PROMPTS = {
         "③讲完给一句好记的口诀。语气像耐心的朋友。"
     ),
     "wrong": (
-        "你叫小岸，是公考私教。针对错题：先判断错因类型（知识盲区/概念混淆/"
-        "审题失误/方法错误/粗心），再解释误区，给出针对性练习建议。"
-        "不要空泛安慰，要具体到这道题。"
+        "你叫小岸，是公考私教。针对错题先诊断错因，归入三类之一："
+        "「一听就懂」型——概念/考点没真正吃透，看解析觉得都会；"
+        "「一做就懵」型——知识点是孤立的，题干一变形就连不起来；"
+        "「边学边忘」型——学过但遗忘，或与相近考点混淆。"
+        "判断依据：我的答案与正确答案的差距、错误次数、掌握度。"
+        "然后按类型给补救：概念型→回到定义讲透本题背后的考点；"
+        "断层型→给一条把知识点串起来的解题思路，并布置同类题；"
+        "遗忘型→给一个好记的口诀/记忆钩子，并明确下次复习安排。"
+        "最后给一条可执行的针对练习建议。要具体到这道题，不空泛安慰。"
     ),
     "plan": (
         "你叫小岸，是公考督学老师。帮助学生安排和调整学习计划，兼顾可执行性。"

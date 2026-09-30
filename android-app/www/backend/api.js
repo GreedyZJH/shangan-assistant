@@ -80,6 +80,9 @@
     var cookieSet = !!String(DB.getSetting("fenbi_cookie") || "").trim();
     var wrongActive = DB.queryOne(
       "SELECT COUNT(*) c FROM wrong_questions WHERE status='active'").c;
+    var dueReview = DB.queryOne(
+      "SELECT COUNT(*) c FROM wrong_questions WHERE status='active' " +
+      "AND next_review_at IS NOT NULL AND next_review_at<=?", [DB.nowMs()]).c;
     var notesN = DB.queryOne("SELECT COUNT(*) c FROM notes").c;
     var todayTasks = DB.queryOne(
       "SELECT COUNT(*) c FROM tasks WHERE date=? AND status='done'",
@@ -93,7 +96,7 @@
       privacy: privacy,
       cookieSet: cookieSet,
       counts: {
-        wrongActive: wrongActive, notes: notesN,
+        wrongActive: wrongActive, dueReview: dueReview, notes: notesN,
         todayTasksDone: todayTasks, todayQuestions: todayQuestions,
         streak: streak(),
       },
@@ -369,7 +372,27 @@
   }
 
   /* ------------------------------------------------------- 错题 ---- */
-  function wrong_list(query, status, module) {
+  /* 掌握度随时间衰减的"当前值"：复习后按 1%/天 缓慢回落，最低保留 55%。
+     已掌握（mastered）不衰减；从未复习过的新错题不衰减。 */
+  function masteryEff(row) {
+    var m = parseInt(row.mastery, 10) || 0;
+    if ((row.status || "active") !== "active" || !row.last_review_at) return m;
+    var days = Math.max(0, (DB.nowMs() - row.last_review_at) / 86400000);
+    var f = Math.max(0.55, 1 - days / 60);
+    return Math.max(1, Math.round(m * f));
+  }
+
+  function wrongRow(r) {
+    var d = Object.assign({}, r);
+    try { d.options = JSON.parse(d.options_json || "[]"); }
+    catch (e) { d.options = []; }
+    d.nextReviewLabel = msToDateLabel(d.next_review_at);
+    d.masteryEff = masteryEff(d);
+    delete d.options_json;
+    return d;
+  }
+
+  function wrong_list(query, status, module, sort) {
     var sql = "SELECT * FROM wrong_questions WHERE status=?";
     var params = [status || "active"];
     if (module) { sql += " AND module_name=?"; params.push(module); }
@@ -377,22 +400,52 @@
       sql += " AND (content_html LIKE ? OR keypoint LIKE ?)";
       params.push("%" + query + "%", "%" + query + "%");
     }
-    sql += " ORDER BY COALESCE(next_review_at,0) ASC, id ASC";
-    return DB.query(sql, params).map(function (r) {
-      var d = Object.assign({}, r);
-      try { d.options = JSON.parse(d.options_json || "[]"); }
-      catch (e) { d.options = []; }
-      d.nextReviewLabel = msToDateLabel(d.next_review_at);
-      delete d.options_json;
-      return d;
-    });
+    var out = DB.query(sql, params).map(wrongRow);
+    if (sort === "mastery") {
+      out.sort(function (a, b) {
+        return (a.masteryEff - b.masteryEff) ||
+          ((a.next_review_at || 0) - (b.next_review_at || 0)) || (a.id - b.id);
+      });
+    } else {
+      out.sort(function (a, b) {
+        return ((a.next_review_at || 0) - (b.next_review_at || 0)) || (a.id - b.id);
+      });
+    }
+    return out;
+  }
+
+  function wrong_due_list(limit) {
+    limit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
+    return DB.query(
+      "SELECT * FROM wrong_questions WHERE status='active' " +
+      "AND next_review_at IS NOT NULL AND next_review_at<=? " +
+      "ORDER BY next_review_at ASC LIMIT ?", [DB.nowMs(), limit]).map(wrongRow);
   }
 
   function wrong_modules() {
     return DB.query(
-      "SELECT module_name, COUNT(*) c FROM wrong_questions " +
-      "WHERE status='active' GROUP BY module_name ORDER BY c DESC").map(function (r) {
-        return { name: r.module_name || "未分类", count: r.c };
+      "SELECT module_name, COUNT(*) c, COALESCE(ROUND(AVG(mastery)),0) am " +
+      "FROM wrong_questions WHERE status='active' " +
+      "GROUP BY module_name ORDER BY c DESC").map(function (r) {
+        return { name: r.module_name || "未分类", count: r.c, mastery: parseInt(r.am, 10) || 0 };
+      });
+  }
+
+  function weak_points(limit) {
+    limit = Math.max(1, Math.min(parseInt(limit, 10) || 3, 5));
+    return DB.query(
+      "SELECT keypoint, COALESCE(MAX(module_name),'') module_name, COUNT(*) attempts, " +
+      "COALESCE(SUM(correct),0) correct, " +
+      "(SELECT COUNT(*) FROM wrong_questions w WHERE w.keypoint=question_results.keypoint) wc " +
+      "FROM question_results WHERE COALESCE(keypoint,'')<>'' " +
+      "GROUP BY keypoint HAVING COUNT(*)>=4 " +
+      "ORDER BY SUM(correct)*100.0/COUNT(*) ASC, wc DESC LIMIT ?", [limit]).map(function (r) {
+        return {
+          keypoint: r.keypoint, moduleName: r.module_name || "",
+          attempts: r.attempts,
+          accuracy: r.attempts ? Math.round(r.correct * 100 / r.attempts) : 0,
+          wrongCount: r.wc,
+        };
       });
   }
 
@@ -411,13 +464,23 @@
     if (!row) throw err("错题不存在。");
     var t = DB.nowMs();
     if (action === "review") {
+      /* 复习答对：掌握度提升，间隔拉长（艾宾浩斯 1/3/7/15 天阶梯） */
       var mastery = Math.min(95, (row.mastery || 0) + 25);
-      var days = mastery <= 40 ? 1 : (mastery <= 70 ? 3 : 7);
+      var days = mastery <= 40 ? 1 : (mastery <= 70 ? 3 : (mastery <= 85 ? 7 : 15));
       var nxt = t + days * 86400 * 1000;
       DB.execute(
         "UPDATE wrong_questions SET mastery=?,last_review_at=?,next_review_at=? WHERE id=?",
         [mastery, t, nxt, row.id]);
       return { mastery: mastery, nextReviewLabel: msToDateLabel(nxt) };
+    }
+    if (action === "fail") {
+      /* 复习答错：掌握度回撤，明天再来（重学一轮） */
+      var m2 = Math.max(20, (row.mastery || 0) - 30);
+      var nxt2 = t + 86400 * 1000;
+      DB.execute(
+        "UPDATE wrong_questions SET mastery=?,last_review_at=?,next_review_at=? WHERE id=?",
+        [m2, t, nxt2, row.id]);
+      return { mastery: m2, nextReviewLabel: msToDateLabel(nxt2) };
     }
     if (action === "master") {
       DB.execute(
@@ -803,9 +866,15 @@
     practice: "你叫小岸，是公考私教。规则：①不直接报答案，先用提问引导学生自己判断；" +
       "②学生明确要求讲解时，按「判断题型→找特征→推规律→定答案」分步讲；" +
       "③讲完给一句好记的口诀。语气像耐心的朋友。",
-    wrong: "你叫小岸，是公考私教。针对错题：先判断错因类型（知识盲区/概念混淆/" +
-      "审题失误/方法错误/粗心），再解释误区，给出针对性练习建议。" +
-      "不要空泛安慰，要具体到这道题。",
+    wrong: "你叫小岸，是公考私教。针对错题先诊断错因，归入三类之一：" +
+      "「一听就懂」型——概念/考点没真正吃透，看解析觉得都会；" +
+      "「一做就懵」型——知识点是孤立的，题干一变形就连不起来；" +
+      "「边学边忘」型——学过但遗忘，或与相近考点混淆。" +
+      "判断依据：我的答案与正确答案的差距、错误次数、掌握度。" +
+      "然后按类型给补救：概念型→回到定义讲透本题背后的考点；" +
+      "断层型→给一条把知识点串起来的解题思路，并布置同类题；" +
+      "遗忘型→给一个好记的口诀/记忆钩子，并明确下次复习安排。" +
+      "最后给一条可执行的针对练习建议。要具体到这道题，不空泛安慰。",
     plan: "你叫小岸，是公考督学老师。帮助学生安排和调整学习计划，兼顾可执行性。" +
       "学生请假或顺延任务时，主动给出替代安排，并鼓励保持连续打卡。",
     notes: "你叫小岸，是公考私教。帮助学生整理笔记、压缩记忆点、出检测题。",
@@ -878,6 +947,7 @@
     practice_history: practice_history,
     practice_history_detail: practice_history_detail,
     wrong_list: wrong_list, wrong_modules: wrong_modules,
+    wrong_due_list: wrong_due_list, weak_points: weak_points,
     wrong_record_answer: wrong_record_answer, wrong_action: wrong_action,
     wrong_sync: wrong_sync,
     notes_list: notes_list, notes_save: notes_save,

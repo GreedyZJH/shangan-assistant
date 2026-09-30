@@ -86,10 +86,11 @@ const state = {
     selNode: null, limit: 10, treeQuery: "",
     labels: [], papers: [], labelId: 1, paperPage: 0,
     session: null, review: null,
-    history: [], histLoaded: false,
+    history: [], histLoaded: false, weak: null,
   },
   wrong: { tab: "active", list: [], modules: [], sel: null, query: "",
-    module: "", loaded: false, quiz: {}, excluded: {} },
+    module: "", loaded: false, quiz: {}, excluded: {},
+    dueMode: false, due: [], dueLoaded: false, sort: "due" },
   notes: { list: [], sel: null, query: "", preview: false },
   plan: { overview: null, tasks: [],
     focus: { running: false, elapsed: 0, last: 0, int: null } },
@@ -106,10 +107,13 @@ function updateTop() {
   $("modelChip").classList.toggle("on", !!state.init.model.api_key_set);
   const target = g.daily_target || 60;
   const done = Math.min(target, c.todayQuestions);
+  const reached = done >= target;
   $("topRingText").textContent = `${done}/${target}`;
-  $("topRing").style.background =
-    `conic-gradient(var(--blue) ${(done / target) * 100}%, #eef0f5 0)`;
-  $("topFlame").textContent = `🔥${c.streak}`;
+  $("topRing").classList.toggle("ok", reached);
+  $("topRing").style.background = reached
+    ? `conic-gradient(var(--green) 100%, #eef0f5 0)`
+    : `conic-gradient(var(--blue) ${(done / target) * 100}%, #eef0f5 0)`;
+  $("topFlame").textContent = c.streak >= 7 ? `✨🔥${c.streak}天` : `🔥${c.streak}`;
 }
 
 /* ------------------------------------------------------- 路由 ------------ */
@@ -132,6 +136,9 @@ async function render() {
     plan: renderPlan, report: renderReport, settings: renderSettings,
   };
   await views[s]();
+  /* 重新触发淡入动画，让每次切页都有轻反馈 */
+  const mp = $("mainPane");
+  mp.style.animation = "none"; void mp.offsetWidth; mp.style.animation = "";
 }
 
 /* #####################################################################
@@ -155,7 +162,7 @@ async function renderPractice() {
       </div>
       <div id="treeBox"></div>`;
     if (!p.treeLoaded) {
-      $("treeBox").innerHTML = `<p class="muted" style="padding:10px">加载知识点中…</p>`;
+      $("treeBox").innerHTML = `<div class="muted" style="padding:10px 6px;display:flex;align-items:center;gap:8px"><span class="typing"><i></i><i></i><i></i></span>正在加载知识点…</div>`;
       try {
         p.tree = await api.fenbi_keypoints(false);
         p.treeLoaded = true;
@@ -228,12 +235,7 @@ function findNode(nodes, id) {
 
 function renderStartMain() {
   const p = state.practice;
-  if (!p.selNode) {
-    $("mainPane").innerHTML = `<div class="empty-state">
-      <span class="big">📚</span>从左侧选择一个知识点开始练习<br>
-      <span style="font-size:12px">支持按知识点专项练习，答完自动出解析、记录错题</span></div>`;
-    return;
-  }
+  if (!p.selNode) { renderWeakCard(); return; }
   const n = p.selNode;
   $("mainPane").innerHTML = `
     <div class="card start-card">
@@ -247,6 +249,48 @@ function renderStartMain() {
         <button class="btn pri" id="startBtn" data-act="startKp" data-id="${n.id}">开始练习</button>
         <span class="muted">交卷后可查看粉笔解析与 AI 讲解</span>
       </div>
+    </div>`;
+}
+
+/* 今日推荐：到期错题复习 + 薄弱点特训（按本地作答正确率定位） */
+async function renderWeakCard() {
+  const p = state.practice;
+  let due = [];
+  try { due = await api.wrong_due_list(200) || []; } catch (e) { /* 未同步错题时静默 */ }
+  let weak = [];
+  try { weak = await api.weak_points(3) || []; } catch (e) { weak = []; }
+  p.weak = weak;
+  if (!due.length && !weak.length) {
+    $("mainPane").innerHTML = `<div class="empty-state">
+      <span class="big">📚</span>从左侧选择一个知识点开始练习<br>
+      <span style="font-size:12px">支持按知识点专项练习，答完自动出解析、记录错题</span></div>`;
+    return;
+  }
+  const dueHtml = due.length
+    ? `<div class="weak-due"><span>🕐 错题复习 · <b>${due.length}</b> 题今天到期（艾宾浩斯安排）</span>
+       <button class="btn pri sm" data-act="goReviewDue">去复习</button></div>`
+    : `<div class="weak-due ok"><span>✅ 今日到期错题已清完，复习节奏保持得不错</span></div>`;
+  const RANKS = [
+    { bg: "#eef3ff", fg: "#2f6bff" },
+    { bg: "#fff7ed", fg: "#f59e0b" },
+    { bg: "#fef2f2", fg: "#ef4444" },
+  ];
+  const weakHtml = weak.length ? `
+    <div class="pane-title" style="margin-top:14px">薄弱点特训 · 最快提分</div>
+    ${weak.map((k, i) => `
+      <div class="weak-item">
+        <span class="rk" style="background:${RANKS[i % RANKS.length].bg};color:${RANKS[i % RANKS.length].fg}">${i + 1}</span>
+        <span class="tx"><b>${esc(k.keypoint)}</b>
+          <span class="muted" style="font-size:11px">${esc(k.moduleName || "未分类")} · 个人正确率 ${k.accuracy}%（${k.attempts} 次作答${k.wrongCount ? `，错 ${k.wrongCount} 题` : ""}）</span></span>
+        <button class="btn pri sm" data-act="weakTrain" data-kp="${esc(k.keypoint)}" data-mod="${esc(k.moduleName || "")}">特训 5 题 →</button>
+      </div>`).join("")}`
+    : `<p class="muted" style="margin-top:12px;font-size:12px">每个考点作答满 4 次后，这里会自动定位你的薄弱知识点</p>`;
+  $("mainPane").innerHTML = `
+    <div class="card start-card">
+      <div class="big-title">今日推荐</div>
+      <p class="muted" style="margin-bottom:4px">系统按你的作答数据选最快提分的题</p>
+      ${dueHtml}
+      ${weakHtml}
     </div>`;
 }
 
@@ -490,11 +534,12 @@ function reviewItemHtml(it, i) {
 ##################################################################### */
 async function renderWrong() {
   const w = state.wrong;
+  if (w.dueMode) return renderWrongDue();
   $("crumb").innerHTML = `错题本 / <b>${w.module || "全部"}</b>`;
   if (!w.loaded) {
     try {
       w.modules = await api.wrong_modules();
-      w.list = await api.wrong_list(w.query, w.tab, w.module);
+      w.list = await api.wrong_list(w.query, w.tab, w.module, w.sort);
       w.loaded = true;
     } catch (e) { toast("加载错题失败", errText(e), "err"); }
   }
@@ -504,26 +549,65 @@ async function renderWrong() {
       <span class="${w.tab === "active" ? "on" : ""}" data-act="wtab" data-v="active">待复习</span>
       <span class="${w.tab === "mastered" ? "on" : ""}" data-act="wtab" data-v="mastered">已掌握</span>
     </div>
+    <div class="mini-seg" style="margin-top:6px">
+      <span class="${w.sort !== "mastery" ? "on" : ""}" data-act="wsort" data-v="due">按复习时间</span>
+      <span class="${w.sort === "mastery" ? "on" : ""}" data-act="wsort" data-v="mastery">按掌握度</span>
+    </div>
     <div class="pane-title">模块筛选</div>
     <div class="wrong-item ${!w.module ? "on" : ""}" data-act="wmod" data-v="">
       <span class="ic" style="font-size:12px">全</span><span class="tx">全部错题</span></div>
     ${w.modules.map((m) => `<div class="wrong-item ${w.module === m.name ? "on" : ""}"
       data-act="wmod" data-v="${esc(m.name)}">
       <span class="ic" style="font-size:11px">${esc(m.name.slice(0, 2))}</span>
-      <span class="tx">${esc(m.name)}</span><b class="muted">${m.count}</b></div>`).join("") ||
+      <span class="tx">${esc(m.name)}</span>
+      <span class="muted" style="font-size:10px">掌握${m.mastery ?? 0}%</span>
+      <b class="muted">${m.count}</b></div>`).join("") ||
       `<p class="muted" style="padding:6px">暂无错题</p>`}
     <div class="pane-title">错题列表</div>
-    ${w.list.map((it) => {
-      const pct = it.mastery || 0;
-      const color = pct >= 70 ? "var(--green)" : pct >= 40 ? "var(--orange)" : "var(--red)";
-      return `<div class="wrong-item ${w.sel && w.sel.id === it.id ? "on" : ""}" data-act="wsel" data-id="${it.id}">
-        <span class="mastery-ring" style="background:conic-gradient(${color} ${pct}%,#eef0f5 0)">
-          <i>${pct}%</i></span>
-        <span class="tx" style="font-size:12px">${esc(stripHtml(it.content_html).slice(0, 22))}…</span>
-      </div>`;
-    }).join("") || `<p class="muted" style="padding:6px">没有符合条件的错题</p>`}`;
+    ${w.list.map(wrongItemHtml).join("") || `<p class="muted" style="padding:6px">没有符合条件的错题</p>`}`;
 
   if (!w.sel && w.list.length) w.sel = w.list[0];
+  renderWrongMain();
+}
+
+/* 错题列表条目（掌握度环按衰减后的当前值显示；到期复习用颜色标记 urgency） */
+function wrongItemHtml(it) {
+  const w = state.wrong;
+  const pct = it.masteryEff ?? it.mastery ?? 0;
+  const color = pct >= 70 ? "var(--green)" : pct >= 40 ? "var(--orange)" : "var(--red)";
+  const now = new Date();
+  const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
+  const dayStart = dayEnd - 86399999;
+  let dueCls = "";
+  if (it.next_review_at) {
+    if (it.next_review_at < dayStart) dueCls = "due-over";
+    else if (it.next_review_at <= dayEnd) dueCls = "due-today";
+  }
+  return `<div class="wrong-item ${dueCls} ${w.sel && w.sel.id === it.id ? "on" : ""}" data-act="wsel" data-id="${it.id}"
+    ${dueCls ? `title="${dueCls === "due-over" ? "已过复习期，尽快安排" : "今天到期复习"}"` : ""}>
+    <span class="mastery-ring" style="background:conic-gradient(${color} ${pct}%,#eef0f5 0)"
+      title="${it.masteryEff != null && it.masteryEff !== it.mastery ? `复习时 ${it.mastery}%，当前 ${it.masteryEff}%` : `掌握度 ${pct}%`}">
+      <i>${pct}%</i></span>
+    <span class="tx" style="font-size:12px">${esc(stripHtml(it.content_html).slice(0, 22))}…</span>
+  </div>`;
+}
+
+/* 今日到期复习模式：只显示艾宾浩斯到期的错题，逐题过完为止 */
+async function renderWrongDue() {
+  const w = state.wrong;
+  if (!w.dueLoaded) {
+    try { w.due = await api.wrong_due_list(200) || []; }
+    catch (e) { toast("加载到期错题失败", errText(e), "err"); w.due = []; }
+    w.dueLoaded = true;
+  }
+  w.list = w.due;
+  $("crumb").innerHTML = `错题本 / <b>今日到期复习</b>`;
+  $("listPane").innerHTML = `
+    <button class="btn pri" style="width:100%" data-act="wDueExit">✓ 完成复习，返回错题本</button>
+    <div class="pane-title" style="margin-top:10px">今日到期 ${w.due.length} 题</div>
+    ${w.due.map(wrongItemHtml).join("") ||
+      `<p class="muted" style="padding:6px">🎉 今日到期的错题都复习完了</p>`}`;
+  if (!w.sel || !w.due.find((x) => x.id === w.sel.id)) w.sel = w.due[0] || null;
   renderWrongMain();
 }
 
@@ -536,7 +620,10 @@ function renderWrongMain() {
   if (!w.sel) {
     $("mainPane").innerHTML = `<div class="empty-state">
       <span class="big">🎉</span><div>${w.tab === "active" ? "还没有错题，去刷题吧" : "还没有已掌握的错题"}</div>
-      <div style="margin-top:16px"><button class="btn pri" data-act="wSync">☁ 从粉笔云端同步错题</button></div>
+      <div class="row" style="justify-content:center;margin-top:16px">
+        <button class="btn pri" data-act="wSync">☁ 从粉笔云端同步错题</button>
+        <button class="btn" data-act="go" data-v="practice">✏️ 去刷题</button>
+      </div>
     </div>`;
     return;
   }
@@ -566,7 +653,8 @@ function renderWrongMain() {
       <div style="margin-bottom:6px">
         <span class="tag blue">${esc(it.module_name || "未分类")}</span>
         <span class="tag red">错 ${it.wrong_count} 次</span>
-        <span class="tag orange">掌握度 ${it.mastery}%</span>
+        <span class="tag orange">掌握度 ${it.masteryEff ?? it.mastery}%</span>
+        ${it.nextReviewLabel && !masteredView ? `<span class="tag gray">${esc(it.nextReviewLabel)}</span>` : ""}
       </div>
       ${it.material_html ? `<div class="q-material">${it.material_html}</div>` : ""}
       <div class="stem" style="font-size:14px">${it.content_html}</div>
@@ -602,14 +690,17 @@ function renderWrongMain() {
         ${masteredView
           ? `<button class="btn" data-act="wReactivate" data-id="${it.id}">重新加入错题</button>`
           : revealed
-            ? `<button class="btn ghost" data-act="wJudge" data-v="review">还没掌握</button>
-               <button class="btn pri" data-act="wJudge" data-v="master">✓ 已掌握</button>`
+            ? (cache.correct
+              ? `<button class="btn ghost" data-act="wJudge" data-v="master">已彻底掌握</button>
+                 <button class="btn pri" data-act="wJudge" data-v="review">✓ 答对了，安排复习</button>`
+              : `<button class="btn ghost" data-act="wJudge" data-v="master">✓ 已掌握</button>
+                 <button class="btn pri" data-act="wJudge" data-v="fail">记住了，明天再战</button>`)
             : ""}
       </div>
     </div>`;
 }
 
-/* 判断是否掌握并自动进入下一题。kind: master / review */
+/* 判断是否掌握并自动进入下一题。kind: master / review(答对) / fail(答错) */
 async function judgeAndGo(kind) {
   const w = state.wrong;
   const it = w.sel;
@@ -618,21 +709,35 @@ async function judgeAndGo(kind) {
   const nextIt = w.list[idx + 1] || w.list[idx - 1] || null;
   let r;
   try {
-    r = await api.wrong_action(it.id, kind === "master" ? "master" : "review");
+    r = await api.wrong_action(it.id, kind === "master" ? "master" : kind);
   } catch (e) { toast("操作失败", errText(e), "err"); return; }
   if (kind === "master") {
     toast("已掌握", "该题移出错题本", "ok");
     const nextId = nextIt ? nextIt.id : null;
     w.modules = await api.wrong_modules();
-    w.list = await api.wrong_list(w.query, w.tab, w.module);
-    w.sel = w.list.find((x) => x.id === nextId) || w.list[0] || null;
+    if (w.dueMode) {
+      w.due = w.due.filter((x) => x.id !== it.id);
+      w.dueLoaded = true;
+      w.sel = w.due.find((x) => x.id === nextId) || w.due[0] || null;
+    } else {
+      w.list = await api.wrong_list(w.query, w.tab, w.module, w.sort);
+      w.sel = w.list.find((x) => x.id === nextId) || w.list[0] || null;
+    }
     renderWrong();
   } else {
     it.mastery = r.mastery;
+    it.masteryEff = r.mastery;
     it.nextReviewLabel = r.nextReviewLabel;
-    toast("已记录", `下次复习：${r.nextReviewLabel}`, "ok");
-    w.sel = nextIt;
-    renderWrong();
+    toast(kind === "fail" ? "已安排明天再战" : "已记录",
+      `下次复习：${r.nextReviewLabel}`, "ok");
+    if (w.dueMode) {
+      w.due = w.due.filter((x) => x.id !== it.id);
+      w.sel = w.due.find((x) => x.id === (nextIt ? nextIt.id : null)) || w.due[0] || null;
+      renderWrong();
+    } else {
+      w.sel = nextIt;
+      renderWrong();
+    }
   }
 }
 
@@ -640,7 +745,7 @@ async function refreshWrong() {
   const w = state.wrong;
   const keepId = w.sel ? w.sel.id : null;
   w.modules = (await api.wrong_modules()) || [];
-  w.list = (await api.wrong_list(w.query, w.tab, w.module)) || [];
+  w.list = (await api.wrong_list(w.query, w.tab, w.module, w.sort)) || [];
   w.sel = w.list.find((x) => x.id === keepId) || w.list[0] || null;
   renderWrong();
 }
@@ -1222,11 +1327,17 @@ const QUICKS = {
   general: ["我该怎么安排今天"],
 };
 
+/* 快捷指令展示图标（data-v 仍为纯文本，避免破坏指令匹配） */
+const QUICK_ICON = {
+  "提示我思路": "💡", "为什么我选的不对": "❓", "出2道同类题": "🎯",
+  "分析我的错因": "🔍", "再讲一遍": "📖", "安排针对性练习": "🎯",
+};
+
 function renderQuicks() {
   const type = ctxType();
   $("chatQuicks").innerHTML = `<div class="quick">
     ${(QUICKS[type] || QUICKS.general).map((q) =>
-      `<span data-act="quick" data-v="${esc(q)}">${esc(q)}</span>`).join("")}</div>`;
+      `<span data-act="quick" data-v="${esc(q)}">${QUICK_ICON[q] ? QUICK_ICON[q] + " " : ""}${esc(q)}</span>`).join("")}</div>`;
 }
 
 function ctxType() {
@@ -1266,7 +1377,7 @@ function buildCtx() {
       题干: stripHtml(it.content_html), 选项: it.options,
       我的答案: it.my_answer || state.wrong.quiz[it.id]?.picked || "未记录作答", 正确答案: it.correct_answer,
       解析: (it.analysis || "").slice(0, 600),
-      错误次数: it.wrong_count, 掌握度: it.mastery + "%",
+      错误次数: it.wrong_count, 掌握度: (it.masteryEff ?? it.mastery) + "%",
     } };
   }
   if (screen === "plan") {
@@ -1533,6 +1644,29 @@ document.addEventListener("click", async (e) => {
 
     /* 错题 */
     case "wtab": state.wrong.tab = v; state.wrong.loaded = true; refreshWrong(); break;
+    case "wsort": state.wrong.sort = v; refreshWrong(); break;
+    case "goReviewDue": {
+      const w = state.wrong;
+      w.dueMode = true; w.dueLoaded = false; w.sel = null; w.quiz = {};
+      go("wrong"); break;
+    }
+    case "wDueExit": {
+      const w = state.wrong;
+      w.dueMode = false; w.dueLoaded = false; w.sel = null; w.loaded = false;
+      render(); break;
+    }
+    case "weakTrain": {
+      try {
+        toast("正在出题", "按薄弱考点从粉笔题库组卷…", "info", 2500);
+        const data = await api.practice_similar({
+          keypointName: el.dataset.kp || "",
+          moduleName: el.dataset.mod || "",
+          limit: 5,
+        });
+        beginSession(data);
+      } catch (err) { toast("特训出题失败", errText(err), "err"); }
+      break;
+    }
     case "wmod": state.wrong.module = v; refreshWrong(); break;
     case "wsel": {
       state.wrong.sel = state.wrong.list.find((x) => x.id === Number(id));

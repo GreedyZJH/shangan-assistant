@@ -10,7 +10,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:"Microsoft YaHei","Segoe UI",system-ui,sans-serif;
-  background:#f5f7fb;color:var(--text);font-size:13px;overflow:hidden;
+  background:#f4f6fb;color:var(--text);font-size:13px;overflow:hidden;
   display:flex;flex-direction:column}
 button{font-family:inherit}
 
@@ -31,13 +31,15 @@ button{font-family:inherit}
 .model-chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);
   background:#fff;border-radius:20px;padding:5px 12px;font-size:11.5px;color:var(--sub)}
 .model-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--sub)}
-.model-chip.on .dot{background:var(--green)}
-.top-ring{width:38px;height:38px;border-radius:50%;
+.model-chip.on .dot{background:var(--green);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,.4)}55%{box-shadow:0 0 0 4px rgba(34,197,94,0)}}
+.top-ring{width:44px;height:44px;border-radius:50%;
   background:conic-gradient(var(--blue) 0,#eef0f5 0);
   display:flex;align-items:center;justify-content:center}
-.top-ring span{width:30px;height:30px;border-radius:50%;background:#fff;
+.top-ring span{width:34px;height:34px;border-radius:50%;background:#fff;
   display:flex;align-items:center;justify-content:center;
-  font-size:9px;color:var(--sub);font-weight:600}
+  font-size:12px;color:var(--sub);font-weight:700}
+.top-ring.ok span{color:var(--green)}
 .top-flame{font-size:13px;font-weight:600;color:#f97316}
 .bell-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);
   background:#fff;font-size:15px;cursor:pointer}
@@ -64,7 +66,9 @@ button{font-family:inherit}
 .panes{flex:1;display:flex;min-height:0}
 .list-pane{width:262px;flex:none;background:var(--panel);border-right:1px solid var(--line);
   padding:12px;overflow:auto}
-.main-pane{flex:1;padding:16px 100px 16px 20px;overflow:auto;min-width:0}
+.main-pane{flex:1;padding:16px 100px 16px 20px;overflow:auto;min-width:0;
+  animation:fadein .18s ease}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
 
 /* ============================================================ 通用 ======= */
 .card{border:1px solid var(--line);border-radius:13px;padding:15px 17px;
@@ -127,9 +131,11 @@ button{font-family:inherit}
 
 /* ============================================================ 刷题-树 ===== */
 .tree-node{user-select:none}
-.tree-label{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;cursor:pointer}
+.tree-label{display:flex;align-items:center;gap:6px;padding:9px 11px;border-radius:8px;
+  cursor:pointer;transition:background .15s}
 .tree-label:hover{background:#fff}
-.tree-label.on{background:var(--blue-bg);color:var(--blue);font-weight:600}
+.tree-label.on{background:linear-gradient(135deg,#eef3ff,#e3ebff);color:var(--blue);
+  font-weight:600;box-shadow:0 2px 6px rgba(47,107,255,.12)}
 .tree-label .arrow{width:13px;font-size:9px;color:var(--sub);transition:.15s;flex:none}
 .tree-node.open>.tree-label .arrow{transform:rotate(90deg)}
 .tree-children{display:none;padding-left:15px}
@@ -162,7 +168,8 @@ button{font-family:inherit}
 .stem img,.q-material img{max-width:100%;border-radius:8px}
 .stem p{margin:4px 0}
 .opt{display:flex;align-items:flex-start;gap:11px;border:1.5px solid var(--line);
-  border-radius:11px;padding:10px 13px;margin-bottom:9px;cursor:pointer;font-size:13.5px;line-height:1.6}
+  border-radius:11px;padding:10px 13px;margin-bottom:9px;cursor:pointer;font-size:13.5px;line-height:1.6;
+  transition:transform .12s,border-color .2s,background .2s}
 .opt .k{width:23px;height:23px;border-radius:50%;border:1.5px solid #cfd6e4;
   display:flex;align-items:center;justify-content:center;font-size:11.5px;flex:none}
 .opt.sel{border-color:var(--blue);background:var(--blue-bg)}
@@ -172,6 +179,7 @@ button{font-family:inherit}
 .opt.bad{border-color:var(--red);background:var(--red-bg)}
 .opt.bad .k{background:var(--red);border-color:var(--red);color:#fff}
 .opt.click:hover{border-color:var(--blue);background:var(--blue-bg)}
+.opt.click:active{transform:scale(.985)}
 .opt:not(.click){cursor:default}
 .opt-body{flex:1;min-width:0}
 .opt-body p{margin:0}
@@ -191,7 +199,9 @@ button{font-family:inherit}
 /* ============================================================ 回顾 ======== */
 .result-summary{border-radius:12px;padding:16px 18px;margin-bottom:13px;
   background:linear-gradient(135deg,#eef3ff,#f6f9ff);border:1px solid #d5e1ff;text-align:center}
-.result-summary .big{font-size:30px;font-weight:800;color:var(--blue)}
+.result-summary .big{font-size:42px;font-weight:800;line-height:1.25;
+  background:linear-gradient(135deg,#2f6bff,#5b8cff);-webkit-background-clip:text;
+  background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
 .review-item{border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden;background:#fff}
 .review-head{display:flex;align-items:center;gap:9px;padding:11px 14px;cursor:pointer}
 .review-head:hover{background:#fafbfe}
@@ -216,6 +226,8 @@ button{font-family:inherit}
 .wrong-item{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--line);
   border-radius:10px;padding:9px 10px;margin-bottom:8px;cursor:pointer}
 .wrong-item:hover{border-color:#c2cbe0}
+.wrong-item.due-today{border-color:#fbbf24;background:#fffbeb}
+.wrong-item.due-over{border-color:#fca5a5;background:#fef2f2}
 .wrong-item.on{border-color:var(--blue);box-shadow:0 0 0 2px rgba(47,107,255,.1)}
 .wrong-item .ic{width:26px;height:26px;border-radius:8px;background:var(--blue-bg);
   color:var(--blue);display:flex;align-items:center;justify-content:center;flex:none}
@@ -223,6 +235,21 @@ button{font-family:inherit}
   display:flex;align-items:center;justify-content:center}
 .mastery-ring i{width:28px;height:28px;background:#fff;border-radius:50%;font-style:normal;
   display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:600}
+
+/* ---- V1.2 今日推荐：薄弱点特训 + 到期复习 ---- */
+.weak-item{display:flex;align-items:center;gap:10px;padding:9px 4px;
+  border-bottom:1px solid #f0f1f5}
+.weak-item:last-child{border-bottom:none}
+.weak-item .rk{width:22px;height:22px;border-radius:6px;background:#eef2ff;color:var(--blue);
+  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+.weak-item .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.weak-item .tx b{font-size:13px}
+.weak-due{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:linear-gradient(90deg,#fff7ed,#fff);border:1px solid #fed7aa;border-radius:10px;
+  padding:13px 15px;margin-top:10px;font-size:13px;
+  box-shadow:0 2px 8px rgba(245,158,11,.08)}
+.weak-due.ok{background:#f0fdf4;border-color:#bbf7d0;color:#15803d}
+.weak-due .btn{flex:none}
 
 /* ============================================================ 笔记 ======== */
 .note-item{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--line);
@@ -295,7 +322,8 @@ textarea.note-edit{min-height:330px;resize:vertical;line-height:1.8}
 .ai-review code{background:#e3eaff;padding:2px 5px;border-radius:4px;font-size:12px}
 .ai-review blockquote{border-left:3px solid var(--blue);padding-left:11px;color:var(--sub);margin:7px 0}
 .ai-review p{margin:4px 0}
-.bot-ava{width:29px;height:29px;border-radius:9px;background:var(--blue);color:#fff;
+.bot-ava{width:29px;height:29px;border-radius:9px;
+  background:linear-gradient(135deg,#2f6bff,#5b8cff);color:#fff;
   display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
 
 /* ============================================================ 悬浮球/对话 == */
