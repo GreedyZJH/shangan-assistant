@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>上岸助手 · 考公刷题</title>
+<script>
+/* 任何脚本异常都直接显示在页面上，避免出现“空白、按钮无效”却无任何线索 */
+window.addEventListener("error", function (e) {
+  var box = document.getElementById("bootError");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "bootError";
+    box.style.cssText = "position:fixed;inset:0;background:#fff;color:#c0392b;" +
+      "padding:24px;font:13px/1.8 Consolas,monospace;z-index:999999;" +
+      "white-space:pre-wrap;overflow:auto";
+    document.documentElement.appendChild(box);
+    box.textContent = "页面脚本出错，请将以下内容截图发给开发者：\n\n";
+  }
+  box.textContent += (e.message || "未知错误") + "\n  at " +
+    (e.filename || "") + ":" + (e.lineno || "") + "\n\n";
+});
+</script>
+<link rel="stylesheet" href="styles.css?v=14">
+</head>
+<body>
+
+<!-- ============================== 顶栏 ============================== -->
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">岸</span>
+    <div class="brand-tx"><b>上岸助手</b><small>公考私教 · 桌面版 V1.1</small></div>
+  </div>
+  <div class="topbar-credit">Power Design by 譬如朝露</div>
+
+  <div class="top-status">
+    <span class="model-chip" id="modelChip">
+      <span class="dot"></span><span id="modelName">未配置模型</span>
+    </span>
+    <div class="top-ring" id="topRing"><span id="topRingText">0/60</span></div>
+    <span class="top-flame" id="topFlame">🔥0</span>
+    <button class="bell-btn" id="bellBtn" title="督学提醒">🔔</button>
+  </div>
+</header>
+
+<!-- ============================== 主体 ============================== -->
+<div class="workspace">
+  <nav class="rail">
+    <button class="on" data-s="practice">
+      <span class="ic">✏️</span><span>刷题</span></button>
+    <button data-s="wrong">
+      <span class="ic">📕</span><span>错题本</span></button>
+    <button data-s="notes">
+      <span class="ic">📝</span><span>笔记</span></button>
+    <button data-s="plan">
+      <span class="ic">📅</span><span>计划任务</span></button>
+    <button data-s="report">
+      <span class="ic">📊</span><span>学习报告</span></button>
+    <button data-s="settings">
+      <span class="ic">⚙️</span><span>设置</span></button>
+  </nav>
+
+  <div class="content-col">
+    <div class="crumb-bar" id="crumb"></div>
+    <div class="panes">
+      <aside class="list-pane" id="listPane"></aside>
+      <main class="main-pane" id="mainPane"></main>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== 悬浮球 =========================== -->
+<div class="float-ball" id="floatBall" title="小岸 AI 辅导">
+  <span>岸</span>
+  <i class="unread-badge" id="unreadBadge" style="display:none"></i>
+</div>
+
+<!-- ============================== 悬浮 AI 窗 ======================= -->
+<div class="float-chat" id="floatChat"></div>
+
+<!-- ===================== 首次进入 · 连接粉笔账号 =================== -->
+<div class="mask" id="connectMask">
+  <div class="modal connect-modal">
+    <h3 style="margin-bottom:4px">连接粉笔账号</h3>
+    <p class="muted" style="font-size:12px;margin:0 0 14px">连接后才能获取知识点、题目和解析，数据仅保存在本机。</p>
+    <div class="mini-seg connect-tabs">
+      <span class="on" data-act="ctab" data-v="scan">扫码 / 网页登录</span>
+      <span data-act="ctab" data-v="cookie">手动粘贴 Cookie</span>
+    </div>
+    <div id="connectBody"></div>
+  </div>
+</div>
+
+<!-- ============================== 确认弹窗 ========================= -->
+<div class="mask" id="confirmMask">
+  <div class="modal confirm-modal">
+    <h3 id="confirmTitle">提示</h3>
+    <p id="confirmText" style="font-size:13px;color:var(--sub)"></p>
+    <div class="row" style="justify-content:flex-end;margin-top:14px">
+      <button class="btn" id="confirmCancel">取消</button>
+      <button class="btn pri" id="confirmOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== 分享弹窗 ========================= -->
+<div class="mask" id="shareMask">
+  <div class="modal share-modal">
+    <button class="modal-close-x" title="关闭">✕</button>
+    <div id="shareBody"></div>
+  </div>
+</div>
+
+<!-- ============================== Toast ============================ -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

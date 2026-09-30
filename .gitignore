@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec
+
+# 用户学习数据（仅保存在本机，不上传）
+desktop/backend/data/
+
+# 安卓构建产物与依赖
+android-app/node_modules/
+android-app/android/.gradle/
+android-app/android/build/
+android-app/android/app/build/
+android-app/android/capacitor-cordova-android-plugins/build/
+android-app/android/local.properties
+
+# 临时文件
+_t/
+*.log
