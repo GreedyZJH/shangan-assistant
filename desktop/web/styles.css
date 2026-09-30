@@ -126,6 +126,24 @@ button{font-family:inherit}
 
 .empty-state{text-align:center;color:var(--sub);padding:44px 20px;font-size:13px;line-height:2}
 .empty-state .big{font-size:34px;display:block;margin-bottom:10px}
+
+/* ======================================================== 护眼背景 ======= */
+.bg-opts{display:flex;gap:10px}
+.bg-opt{flex:1;border:1.5px solid var(--line);border-radius:10px;padding:9px 0;
+  text-align:center;font-size:12px;cursor:pointer;user-select:none;
+  display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--sub)}
+.bg-opt i{width:26px;height:26px;border-radius:50%;border:1px solid rgba(0,0,0,.08)}
+.bg-opt:hover{border-color:#c2cbe0}
+.bg-opt.on{border-color:var(--blue);color:var(--blue);font-weight:600;background:var(--blue-bg)}
+body.theme-blue .card{background:#eaf2fe}
+body.theme-blue .q-material{background:rgba(255,255,255,.6)}
+body.theme-blue .main-pane{background:#f2f6fd}
+body.theme-green .card{background:#e6f2e8}
+body.theme-green .q-material{background:rgba(255,255,255,.6)}
+body.theme-green .main-pane{background:#eff6f0}
+body.theme-red .card{background:#fdecec}
+body.theme-red .q-material{background:rgba(255,255,255,.6)}
+body.theme-red .main-pane{background:#faf1f1}
 .progress{height:7px;border-radius:6px;background:#eef0f5;overflow:hidden;margin:8px 0}
 .progress i{display:block;height:100%;background:var(--blue);border-radius:6px}
 

@@ -1150,6 +1150,21 @@ async function renderSettings() {
     </div>
 
     <div class="card">
+      <h3>🎨 护眼背景</h3>
+      <p class="muted" style="margin-bottom:10px">做题面板的底色，选一个看着舒服的，点击立即生效。</p>
+      <div class="bg-opts">
+        <div class="bg-opt ${((state.init.general.bg_mode) || "default") === "default" ? "on" : ""}"
+          data-act="bgSet" data-v="default"><i style="background:#ffffff"></i>默认</div>
+        <div class="bg-opt ${state.init.general.bg_mode === "blue" ? "on" : ""}"
+          data-act="bgSet" data-v="blue"><i style="background:#dbe9fd"></i>蓝色</div>
+        <div class="bg-opt ${state.init.general.bg_mode === "green" ? "on" : ""}"
+          data-act="bgSet" data-v="green"><i style="background:#d9eddc"></i>绿色</div>
+        <div class="bg-opt ${state.init.general.bg_mode === "red" ? "on" : ""}"
+          data-act="bgSet" data-v="red"><i style="background:#fce4e2"></i>红色</div>
+      </div>
+    </div>
+
+    <div class="card">
       <h3>💾 数据备份</h3>
       <p class="muted" style="margin-bottom:10px">错题、笔记、计划均保存在本机。</p>
       <button class="btn" data-act="backupExport">导出备份</button>
@@ -1992,6 +2007,17 @@ document.addEventListener("click", async (e) => {
       state.init.general = body; updateTop();
       toast("设置已保存", "", "ok", 2200); break;
     }
+    case "bgSet": {
+      const body = { ...state.init.general, bg_mode: v };
+      try {
+        await api.general_save(body);
+        state.init.general = body;
+        applyTheme();
+        renderSettings();
+        toast("背景已切换", v === "default" ? "已恢复默认白色" : "", "ok", 1800);
+      } catch (err) { toast("保存失败", errText(err), "err"); }
+      break;
+    }
     case "backupExport": {
       try {
         const r = await api.backup_export();
@@ -2089,11 +2115,18 @@ $("bellBtn").addEventListener("click", () => {
    启动
 ##################################################################### */
 let booted = false;
+/* 护眼背景：设置里选的底色应用到做题面板 */
+function applyTheme() {
+  const mode = (state.init.general && state.init.general.bg_mode) || "default";
+  document.body.classList.remove("theme-blue", "theme-green", "theme-red");
+  if (mode !== "default") document.body.classList.add("theme-" + mode);
+}
 async function boot() {
   if (booted) return;
   booted = true;
   try {
     state.init = await api.app_init();
+    applyTheme();
     updateTop();
     await loadChat();
     await go("practice");
