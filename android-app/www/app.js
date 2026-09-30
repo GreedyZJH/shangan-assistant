@@ -27,7 +27,16 @@ function fmtHMS(sec) {
 }
 /* 填空横线：题面里的连续空格渲染为下划线占位 */
 function blankify(s) {
-  return esc(s).replace(/ {2,}/g, '<span class="q-blank"></span>');
+  return esc(s).replace(/[\u00a0 ]{2,}/g, '<span class="q-blank"></span>');
+}
+/* 内容已是 HTML 时用：按标签切分，只处理文本段里的空白，不碰标签属性 */
+function blankifyHtml(s) {
+  s = String(s || "");
+  if (!s.includes("<")) return blankify(s);
+  return s.split(/(<[^>]*>)/g).map((seg) =>
+    seg.startsWith("<") ? seg
+      : seg.replace(/(?:&nbsp;|[\u00a0 ]){2,}/g, '<span class="q-blank"></span>')
+  ).join("");
 }
 /* 难度星级（粉笔 difficulty 为 1-5） */
 function stars(d) {
@@ -412,12 +421,12 @@ function renderSession() {
     <div class="progress"><i style="width:${(answeredCount / s.questions.length) * 100}%"></i></div>
 
     <div class="card" style="margin-top:12px">
-      ${q.materialHtml ? `<div class="q-material">${q.materialHtml}</div>` : ""}
-      <div class="stem">${q.contentHtml}</div>
+      ${q.materialHtml ? `<div class="q-material">${blankifyHtml(q.materialHtml)}</div>` : ""}
+      <div class="stem">${blankifyHtml(q.contentHtml)}</div>
       ${q.options.length ? q.options.map((o, i) => {
         const excl = (s.excluded[gid] || []).includes(i);
         return `<div class="opt ${sel.includes(i) ? "sel" : ""} ${excl ? "excluded" : ""}" data-act="pick" data-v="${i}">
-          <span class="k">${String.fromCharCode(65 + i)}</span><span>${o}</span>
+          <span class="k">${String.fromCharCode(65 + i)}</span><span>${blankifyHtml(o)}</span>
           <span class="excl-btn${excl ? " on" : ""}" data-act="exclOpt" data-v="${i}" title="排除该项">⊘</span></div>`;
       }).join("")
         : `<p class="muted">本题无选项，可直接在右侧询问小岸。</p>`}
@@ -493,7 +502,7 @@ function reviewItemHtml(it, i) {
   const mySet = new Set((it.myAnswer || "").split(",").filter(Boolean));
   const correctSet = new Set((it.correctAnswer || "").split(",").filter(Boolean));
   const notAns = it.hist ? "当时未作答" : "未作答";
-  return `<div class="review-item">
+  return `<div class="review-item" data-idx="${i}">
     <div class="review-head" data-act="revToggle">
       <span class="no">${i + 1}</span>
       <b>${it.correct ? "✅" : "❌"} ${blankify(it.question.slice(0, 46))}…</b>
@@ -1313,7 +1322,12 @@ function renderChat() {
 }
 
 function chatMsgHtml(m) {
-  if (m.role === "user") return `<div class="msg me">${esc(m.content)}</div>`;
+  if (m.role === "user") {
+    /* 消息入库时带有【当前上下文】前缀（供 AI 保持题目一致），展示时剥掉 */
+    const shown = String(m.content || "")
+      .replace(/^【当前上下文】\n[\s\S]*?\n\n/, "");
+    return `<div class="msg me">${esc(shown)}</div>`;
+  }
   if (!m.content) return `<div class="msg bot" data-mid="${m.id}"><span class="typing"><i></i><i></i><i></i></span></div>`;
   return `<div class="msg bot md-body" data-mid="${m.id}">${md(m.content)}</div>`;
 }
@@ -1363,10 +1377,14 @@ function buildCtx() {
       } };
     }
     if (p.review) {
-      const it = p.review.items[0];
+      /* 取当前展开（或最近点开）的题目作为上下文，默认第一题 */
+      const ri = (p.review.openIdx != null && p.review.items[p.review.openIdx])
+        ? p.review.openIdx : 0;
+      const it = p.review.items[ri];
       return { type: "practice", data: {
+        题号: `第 ${ri + 1} 题 / 共 ${p.review.items.length} 题`,
         题干: it.question, 正确答案: it.correctAnswer,
-        我的答案: it.myAnswer || "未记录作答",
+        我的答案: it.myAnswer || "未记录作答（以我口述的为准）",
         粉笔解析: (it.analysis || "").slice(0, 600),
       } };
     }
@@ -1634,11 +1652,28 @@ document.addEventListener("click", async (e) => {
       renderSession(); break;
     }
     case "submit": doSubmit(); break;
-    case "revToggle": el.closest(".review-item").classList.toggle("open"); break;
+    case "revToggle": {
+      const item = el.closest(".review-item");
+      item.classList.toggle("open");
+      /* 记录最近展开的题目序号，AI 上下文跟随它 */
+      const rv = state.practice.review;
+      if (rv && item.classList.contains("open")) {
+        const i = Number(item.dataset.idx);
+        if (!Number.isNaN(i)) rv.openIdx = i;
+      }
+      break;
+    }
     case "reviewAgain":
       state.practice.review = null; state.practice.selNode = null; render(); break;
     case "askAi": openChat(); break;
     case "askAbout": {
+      /* 「问小岸这道题」：把上下文切到该题，而不是固定第一题 */
+      const rv = state.practice.review;
+      if (rv) {
+        const i = rv.items.findIndex((x) =>
+          String(x.globalId) === String(el.dataset.id));
+        if (i >= 0) rv.openIdx = i;
+      }
       openChat(); toast("已带入题目", "直接在对话框追问即可", "info", 2500); break;
     }
 

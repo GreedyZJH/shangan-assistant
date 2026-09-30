@@ -33,16 +33,17 @@ def _esc(s: Any) -> str:
 
 
 def _blankify(s: str) -> str:
-    """粉笔填空横线在数据里是连续半角空格，HTML 会折叠掉；
-    转成带下边线的占位元素，显示为横线。"""
-    return re.sub(" {2,}", '<span class="q-blank"></span>', s)
+    """粉笔填空横线在数据里是连续空白（半角空格或不间断空格 \\u00a0）：
+    普通空格会被 HTML 折叠掉，\\u00a0 不折叠但没有下划线；
+    统一转成带下边线的占位元素，显示为横线。"""
+    return re.sub("[\u00a0 ]{2,}", '<span class="q-blank"></span>', s)
 
 
 def _blankify_html(s: str) -> str:
-    """只替换 HTML 标签之间的纯文本里的空格串，避免破坏标签属性。"""
+    """只替换 HTML 标签之间的纯文本里的空白串，避免破坏标签属性。"""
     return re.sub(
         r">([^<]*)<",
-        lambda m: ">" + _blankify(m.group(1)) + "<",
+        lambda m: ">" + _blankify(m.group(1).replace("&nbsp;", "\u00a0")) + "<",
         s,
     )
 

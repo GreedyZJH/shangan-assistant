@@ -53,13 +53,13 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
-  /* 填空横线：题面里的连续空格渲染为下划线占位 */
+  /* 填空横线：题面里的连续空白（半角空格 / 不间断空格 \u00a0）渲染为下划线占位 */
   function blankify(s) {
-    return String(s).replace(/ {2,}/g, '<span class="q-blank"></span>');
+    return String(s).replace(/[\u00a0 ]{2,}/g, '<span class="q-blank"></span>');
   }
   function blankifyHtml(s) {
     return String(s).replace(/>([^<]*)</g, function (m, txt) {
-      return ">" + blankify(txt) + "<";
+      return ">" + blankify(txt.replace(/&nbsp;/g, "\u00a0")) + "<";
     });
   }
   function parseMaybeJson(raw) {

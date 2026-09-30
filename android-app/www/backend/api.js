@@ -865,7 +865,9 @@
   var SYS_PROMPTS = {
     practice: "你叫小岸，是公考私教。规则：①不直接报答案，先用提问引导学生自己判断；" +
       "②学生明确要求讲解时，按「判断题型→找特征→推规律→定答案」分步讲；" +
-      "③讲完给一句好记的口诀。语气像耐心的朋友。",
+      "③讲完给一句好记的口诀。④最后一条消息的【当前上下文】是当前讨论的题目，" +
+      "历史消息里其他题目的内容仅供回顾，严禁串题；" +
+      "学生口述的答案与上下文记录不一致时，以学生口述为准。语气像耐心的朋友。",
     wrong: "你叫小岸，是公考私教。针对错题先诊断错因，归入三类之一：" +
       "「一听就懂」型——概念/考点没真正吃透，看解析觉得都会；" +
       "「一做就懵」型——知识点是孤立的，题干一变形就连不起来；" +
@@ -874,7 +876,8 @@
       "然后按类型给补救：概念型→回到定义讲透本题背后的考点；" +
       "断层型→给一条把知识点串起来的解题思路，并布置同类题；" +
       "遗忘型→给一个好记的口诀/记忆钩子，并明确下次复习安排。" +
-      "最后给一条可执行的针对练习建议。要具体到这道题，不空泛安慰。",
+      "最后给一条可执行的针对练习建议。要具体到这道题，不空泛安慰。" +
+      "讨论对象以最后一条消息的【当前上下文】为准，不与历史里其他题目串题。",
     plan: "你叫小岸，是公考督学老师。帮助学生安排和调整学习计划，兼顾可执行性。" +
       "学生请假或顺延任务时，主动给出替代安排，并鼓励保持连续打卡。",
     notes: "你叫小岸，是公考私教。帮助学生整理笔记、压缩记忆点、出检测题。",
@@ -899,8 +902,14 @@
     var ctxType = payload.ctxType || "general";
     var ctxData = payload.ctxData || {};
 
+    /* 上下文随消息一起入库：对话历史自带题目信息，模型不会被更早的、
+       讨论其他题目的旧消息带偏（与桌面版一致） */
+    var stored = text;
+    if (ctxData && Object.keys(ctxData).length) {
+      stored = "【当前上下文】\n" + JSON.stringify(ctxData) + "\n\n" + text;
+    }
     DB.insert("INSERT INTO chat_messages(role,content,ctx_type,created_at) VALUES(?,?,?,?)",
-      ["user", text, ctxType, DB.nowMs()]);
+      ["user", stored, ctxType, DB.nowMs()]);
     var mid = DB.insert(
       "INSERT INTO chat_messages(role,content,ctx_type,created_at) VALUES('assistant','',?,?)",
       [ctxType, DB.nowMs()]);
@@ -915,12 +924,6 @@
     history.forEach(function (r) {
       if (r.content) messages.push({ role: r.role, content: r.content });
     });
-    if (ctxData && Object.keys(ctxData).length) {
-      messages[messages.length - 1] = {
-        role: "user",
-        content: "【当前上下文】\n" + JSON.stringify(ctxData) + "\n\n" + text,
-      };
-    }
 
     /* 流式降级为一次性返回，事件时序与桌面版保持一致。 */
     AI.streamChat(messages,

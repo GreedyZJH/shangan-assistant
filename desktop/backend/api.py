@@ -30,7 +30,7 @@ def _err(msg: str) -> dict:
 
 
 def text_to_html(text: str) -> str:
-    return re.sub(" {2,}", '<span class="q-blank"></span>',
+    return re.sub("[\u00a0 ]{2,}", '<span class="q-blank"></span>',
                   _esc(text)).replace("\n", "<br>")
 
 
@@ -1309,7 +1309,9 @@ SYS_PROMPTS = {
     "practice": (
         "你叫小岸，是公考私教。规则：①不直接报答案，先用提问引导学生自己判断；"
         "②学生明确要求讲解时，按「判断题型→找特征→推规律→定答案」分步讲；"
-        "③讲完给一句好记的口诀。语气像耐心的朋友。"
+        "③讲完给一句好记的口诀。④最后一条消息的【当前上下文】是当前讨论的题目，"
+        "历史消息里其他题目的内容仅供回顾，严禁串题；"
+        "学生口述的答案与上下文记录不一致时，以学生口述为准。语气像耐心的朋友。"
     ),
     "wrong": (
         "你叫小岸，是公考私教。针对错题先诊断错因，归入三类之一："
@@ -1321,6 +1323,7 @@ SYS_PROMPTS = {
         "断层型→给一条把知识点串起来的解题思路，并布置同类题；"
         "遗忘型→给一个好记的口诀/记忆钩子，并明确下次复习安排。"
         "最后给一条可执行的针对练习建议。要具体到这道题，不空泛安慰。"
+        "讨论对象以最后一条消息的【当前上下文】为准，不与历史里其他题目串题。"
     ),
     "plan": (
         "你叫小岸，是公考督学老师。帮助学生安排和调整学习计划，兼顾可执行性。"
@@ -1356,10 +1359,16 @@ def chat_send(payload: dict) -> dict:
     ctx_type = payload.get("ctxType") or "general"
     ctx_data = payload.get("ctxData") or {}
 
+    # 上下文随消息一起入库：对话历史自带题目信息，
+    # 模型不会被更早的、讨论其他题目的旧消息带偏
+    stored = text
+    if ctx_data:
+        stored = ("【当前上下文】\n" + json.dumps(ctx_data, ensure_ascii=False)
+                  + "\n\n" + text)
     storage.insert(
         "INSERT INTO chat_messages(role,content,ctx_type,created_at) "
         "VALUES(?,?,?,?)",
-        ("user", text, ctx_type, storage.now_ms()))
+        ("user", stored, ctx_type, storage.now_ms()))
     mid = storage.insert(
         "INSERT INTO chat_messages(role,content,ctx_type,created_at) "
         "VALUES('assistant','',?,?)",
@@ -1374,13 +1383,6 @@ def chat_send(payload: dict) -> dict:
     for r in history_rows:
         if r["content"]:
             messages.append({"role": r["role"], "content": r["content"]})
-    if ctx_data:
-        messages[-1] = {
-            "role": "user",
-            "content": "【当前上下文】\n"
-                       + json.dumps(ctx_data, ensure_ascii=False)
-                       + "\n\n" + text,
-        }
 
     def worker() -> None:
         def on_delta(piece: str) -> None:
