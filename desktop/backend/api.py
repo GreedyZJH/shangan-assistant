@@ -219,11 +219,12 @@ def practice_submit(payload: dict) -> dict:
                 "prefix": prefix,
                 "module_name": mod,
                 "keypoint": kp,
-                "content_html": text_to_html(item["question"]),
-                "options": item["options"],
+                "content_html": item.get("contentHtml")
+                                or text_to_html(item["question"]),
+                "options": item.get("optionsHtml") or item["options"],
                 "my_answer": item["myAnswer"],
                 "correct_answer": item["correctAnswer"],
-                "analysis": item["analysis"],
+                "analysis": item.get("analysisHtml") or item["analysis"],
                 "source": item.get("source", ""),
             })
 
@@ -284,7 +285,8 @@ def practice_history_detail(session_id: int) -> dict:
                 pack = client.get_solutions(sess["ex_key"], prefix)
                 for m in pack.get("materials", []) or []:
                     if m.get("globalId"):
-                        mat_map[str(m["globalId"])] = m.get("content") or ""
+                        mat_map[str(m["globalId"])] = (m.get("contentHtml")
+                                                       or m.get("content") or "")
                 sols = pack.get("solutions", []) or []
                 for s in sols:
                     for k in (s.get("globalId"), s.get("id")):
@@ -325,7 +327,7 @@ def practice_history_detail(session_id: int) -> dict:
             "correct": bool(correct_map.get(gid, 0)),
             "hist": True,
             "difficulty": b.get("difficulty"),
-            "material": mat_map.get(str(mat_id), "") if mat_id else "",
+            "materialHtml": mat_map.get(str(mat_id), "") if mat_id else "",
         }
         # 本地累计作答统计
         try:
@@ -342,10 +344,13 @@ def practice_history_detail(session_id: int) -> dict:
             out_items.append({
                 **base,
                 "question": s.get("question", ""),
+                "contentHtml": s.get("contentHtml", ""),
                 "options": s.get("options", []),
+                "optionsHtml": s.get("optionsHtml", []),
                 "correctAnswer": s.get("correctAnswer", ""),
                 "correctAnswerText": s.get("correctAnswerText", ""),
                 "analysis": s.get("analysis", ""),
+                "analysisHtml": s.get("analysisHtml", ""),
                 "source": s.get("source") or "",
                 "keypoints": s.get("keypoints") or [],
             })
@@ -363,10 +368,14 @@ def practice_history_detail(session_id: int) -> dict:
                 **base,
                 "question": fenbi_svc.fc._rich_to_text(src.get("content"))
                             or "（原练习内容已过期，无法回看本题）",
+                "contentHtml": fenbi_svc.fc.rich_to_html(src.get("content")),
                 "options": opts,
+                "optionsHtml": fenbi_svc.fc.extract_options_html(
+                    src.get("accessories")),
                 "correctAnswer": letter,
                 "correctAnswerText": "",
                 "analysis": "（该题解析内容受限，暂无法回看）",
+                "analysisHtml": "",
                 "source": src.get("shortSource") or "",
                 "keypoints": [],
             })

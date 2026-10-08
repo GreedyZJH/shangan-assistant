@@ -172,17 +172,30 @@
     answers.forEach(function (a) {
       mine[a.globalId] = String(a.choice || "").toUpperCase();
     });
+    /* 材料按 materialId 挂到每道题（HTML 优先，图推/材料题可显示图片） */
+    var matmap = {};
+    (pack.materials || []).forEach(function (m) {
+      if (m.globalId !== undefined && m.globalId !== null)
+        matmap[String(m.globalId)] = m.contentHtml || m.content || "";
+    });
     var items = (pack.solutions || []).map(function (s) {
       var my = mine[s.globalId] || "";
       var ca = String(s.correctAnswer || "").toUpperCase();
+      var mref = (s.materialId !== undefined && s.materialId !== null) ? s.materialId
+        : ((s.materialGlobalId !== undefined && s.materialGlobalId !== null)
+          ? s.materialGlobalId : null);
       return {
         globalId: s.globalId,
         question: s.question || "",
+        contentHtml: s.contentHtml || "",
         options: s.options || [],
+        optionsHtml: s.optionsHtml || [],
+        materialHtml: mref !== null ? (matmap[String(mref)] || "") : "",
         myAnswer: my,
         correctAnswer: ca,
         correctAnswerText: s.correctAnswerText || "",
         analysis: s.analysis || "",
+        analysisHtml: s.analysisHtml || "",
         source: s.source || "",
         keypoints: s.keypoints || [],
         correct: !!my && setEq(my.split(","), ca.split(",")),
@@ -224,9 +237,11 @@
         DB.upsertWrong({
           global_id: String(item.globalId), question_id: "", prefix: prefix,
           module_name: mod, keypoint: kp,
-          content_html: textToHtml(item.question), options: item.options,
+          content_html: item.contentHtml || textToHtml(item.question),
+          options: (item.optionsHtml && item.optionsHtml.length)
+            ? item.optionsHtml : item.options,
           my_answer: item.myAnswer, correct_answer: item.correctAnswer,
-          analysis: item.analysis, source: item.source || "",
+          analysis: item.analysisHtml || item.analysis, source: item.source || "",
         });
       }
     });
@@ -271,7 +286,7 @@
         try {
           var solPack = await Fenbi.getSolutions(sess.ex_key, prefix);
           (solPack.materials || []).forEach(function (m) {
-            if (m.globalId) matMap[String(m.globalId)] = m.content || "";
+            if (m.globalId) matMap[String(m.globalId)] = m.contentHtml || m.content || "";
           });
           sols = solPack.solutions || [];
           sols.forEach(function (s) {
@@ -309,7 +324,7 @@
         correct: !!correctMap[gid],
         hist: true,
         difficulty: b.difficulty !== undefined ? b.difficulty : null,
-        material: matId ? (matMap[String(matId)] || "") : "",
+        materialHtml: matId ? (matMap[String(matId)] || "") : "",
       };
       try {
         var row = DB.queryOne(
@@ -322,24 +337,30 @@
       if (s.globalId !== undefined || s.question) {
         return Object.assign({}, base, {
           question: s.question || "",
+          contentHtml: s.contentHtml || "",
           options: s.options || [],
+          optionsHtml: s.optionsHtml || [],
           correctAnswer: s.correctAnswer || "",
           correctAnswerText: s.correctAnswerText || "",
           analysis: s.analysis || "",
+          analysisHtml: s.analysisHtml || "",
           source: s.source || "",
           keypoints: s.keypoints || [],
         });
       }
       var src = Object.keys(q).length ? q : b;
       if (Object.keys(src).length) {
-        var opts = [], letter = "";
+        var opts = [], optsHtml = [], letter = "";
         try {
           opts = Fenbi.extractOptionsText(src.accessories);
+          optsHtml = Fenbi.extractOptionsHtml(src.accessories);
           letter = Fenbi.indexToLetter((src.correctAnswer || {}).choice);
         } catch (e5) {}
         return Object.assign({}, base, {
           question: Fenbi.richToText(src.content) || "（原练习内容已过期，无法回看本题）",
+          contentHtml: Fenbi.richToHtml(src.content) || "",
           options: opts,
+          optionsHtml: optsHtml,
           correctAnswer: letter,
           correctAnswerText: "",
           analysis: "（该题解析内容受限，暂无法回看）",

@@ -425,9 +425,8 @@ function renderSession() {
       <div class="stem">${blankifyHtml(q.contentHtml)}</div>
       ${q.options.length ? q.options.map((o, i) => {
         const excl = (s.excluded[gid] || []).includes(i);
-        return `<div class="opt ${sel.includes(i) ? "sel" : ""} ${excl ? "excluded" : ""}" data-act="pick" data-v="${i}">
-          <span class="k">${String.fromCharCode(65 + i)}</span><span>${blankifyHtml(o)}</span>
-          <span class="excl-btn${excl ? " on" : ""}" data-act="exclOpt" data-v="${i}" title="排除该项">⊘</span></div>`;
+        return `<div class="opt ${sel.includes(i) ? "sel" : ""} ${excl ? "excluded" : ""}" data-act="pick" data-v="${i}" title="长按可排除该选项">
+          <span class="k">${String.fromCharCode(65 + i)}</span><span>${o}</span></div>`;
       }).join("")
         : `<p class="muted">本题无选项，可直接在右侧询问小岸。</p>`}
       <div class="q-dots">
@@ -502,21 +501,27 @@ function reviewItemHtml(it, i) {
   const mySet = new Set((it.myAnswer || "").split(",").filter(Boolean));
   const correctSet = new Set((it.correctAnswer || "").split(",").filter(Boolean));
   const notAns = it.hist ? "当时未作答" : "未作答";
+  /* 优先用带图片的 HTML 版本（旧记录/降级时回退纯文本） */
+  const hasHtml = !!(it.contentHtml || (it.optionsHtml && it.optionsHtml.length));
+  const opts = (it.optionsHtml && it.optionsHtml.length) ? it.optionsHtml : (it.options || []);
   return `<div class="review-item" data-idx="${i}">
     <div class="review-head" data-act="revToggle">
       <span class="no">${i + 1}</span>
-      <b>${it.correct ? "✅" : "❌"} ${blankify(it.question.slice(0, 46))}…</b>
+      <b>${it.correct ? "✅" : "❌"} ${blankify((it.question || "").slice(0, 46))}…</b>
       <span class="muted">${it.correct ? "" :
         (it.myAnswer ? "我的答案 " + esc(it.myAnswer) : notAns)}</span>
     </div>
     <div class="review-body">
-      ${it.material ? `<div class="q-material">${blankify(it.material)}</div>` : ""}
-      <div class="stem" style="font-size:14px">${blankify(it.question)}</div>
-      ${it.options.map((o, j) => {
+      ${it.materialHtml ? `<div class="q-material">${blankifyHtml(it.materialHtml)}</div>`
+        : (it.material ? `<div class="q-material">${blankify(it.material)}</div>` : "")}
+      <div class="stem" style="font-size:14px">${hasHtml && it.contentHtml
+        ? blankifyHtml(it.contentHtml) : blankify(it.question || "")}</div>
+      ${opts.map((o, j) => {
         const L = String.fromCharCode(65 + j);
         const cls = correctSet.has(L) ? "right" : mySet.has(L) ? "bad" : "";
+        const body = (it.optionsHtml && it.optionsHtml.length) ? o : esc(o);
         return `<div class="opt ${cls}" style="cursor:default">
-          <span class="k">${L}</span><span>${blankify(o)}</span></div>`;
+          <span class="k">${L}</span><span>${body}</span></div>`;
       }).join("")}
       <div class="analysis-box">
         <div class="t">${it.hist ? "题目解析" : "粉笔解析"}</div>
@@ -528,7 +533,8 @@ function reviewItemHtml(it, i) {
         </div>
         <div><b>正确答案：${esc(it.correctAnswer)}</b>
           ${it.correctAnswerText ? "（" + esc(it.correctAnswerText) + "）" : ""}</div>
-        <div style="margin-top:6px">${esc(it.analysis)}</div>
+        <div style="margin-top:6px">${it.analysisHtml
+          ? it.analysisHtml : esc(it.analysis || "")}</div>
         ${it.source ? `<div class="muted" style="margin-top:7px">出处：${esc(it.source)}</div>` : ""}
         <div style="margin-top:7px">
           ${it.keypoints.map((k) => `<span class="tag blue">${esc(k)}</span>`).join("")}</div>
@@ -677,9 +683,8 @@ function renderWrongMain() {
           else if (pickedSet.has(L)) cls = "bad";
         }
         const clickable = revealed ? "" : `data-act="wPick" data-v="${L}"`;
-        return `<div class="opt ${cls} ${excl ? "excluded" : ""} ${revealed ? "" : "click"}" ${clickable}>
-          <span class="k">${L}</span><span class="opt-body">${o}</span>
-          ${revealed ? "" : `<span class="excl-btn${excl ? " on" : ""}" data-act="wExcl" data-v="${L}" title="排除该项">⊘</span>`}</div>`;
+        return `<div class="opt ${cls} ${excl ? "excluded" : ""} ${revealed ? "" : "click"}" ${clickable} ${revealed ? "" : 'title="长按可排除该选项"'}>
+          <span class="k">${L}</span><span class="opt-body">${o}</span></div>`;
       }).join("")}
       ${verdictHtml}
       ${revealed ? `
@@ -1568,9 +1573,67 @@ window.__appEvent = (ev, p) => {
 };
 
 /* #####################################################################
+   长按排除选项（作答时按住选项 0.45 秒）
+##################################################################### */
+let lpTimer = null, lpFired = false, lpX = 0, lpY = 0;
+
+function excludeByLongPress(opt) {
+  const act = opt.dataset.act;
+  let excludedNow = false;
+  if (act === "pick") {
+    const s = state.practice.session;
+    if (!s) return;
+    const gid = s.questions[s.idx].globalId;
+    const i = Number(opt.dataset.v);
+    const ex = s.excluded[gid] || [];
+    s.excluded[gid] = ex.includes(i) ? ex.filter((x) => x !== i) : [...ex, i];
+    excludedNow = s.excluded[gid].includes(i);
+    renderSession();
+  } else if (act === "wPick") {
+    const w = state.wrong, it = w.sel;
+    if (!it || w.quiz[it.id]) return;
+    const v = opt.dataset.v;
+    const ex = w.excluded[it.id] || [];
+    w.excluded[it.id] = ex.includes(v) ? ex.filter((x) => x !== v) : [...ex, v];
+    excludedNow = w.excluded[it.id].includes(v);
+    renderWrongMain();
+  } else return;
+  toast(excludedNow ? "已排除该选项" : "已取消排除", "", "info", 1500);
+}
+
+document.addEventListener("pointerdown", (e) => {
+  const opt = e.target.closest
+    ? e.target.closest('.opt[data-act="pick"], .opt[data-act="wPick"]') : null;
+  lpFired = false;
+  if (!opt) return;
+  lpX = e.clientX; lpY = e.clientY;
+  if (lpTimer) clearTimeout(lpTimer);
+  lpTimer = setTimeout(() => {
+    lpTimer = null; lpFired = true;
+    excludeByLongPress(opt);
+  }, 450);
+}, true);
+["pointerup", "pointercancel", "pointerleave"].forEach((ev) =>
+  document.addEventListener(ev, () => {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+  }, true));
+document.addEventListener("pointermove", (e) => {
+  if (!lpTimer) return;
+  if (Math.hypot(e.clientX - lpX, e.clientY - lpY) > 12) {
+    clearTimeout(lpTimer); lpTimer = null;
+  }
+}, true);
+document.addEventListener("contextmenu", (e) => {
+  if (e.target.closest && e.target.closest('.opt[data-act="pick"], .opt[data-act="wPick"]'))
+    e.preventDefault();
+});
+
+/* #####################################################################
    全局事件委托
 ##################################################################### */
 document.addEventListener("click", async (e) => {
+  /* 长按排除后吞掉紧随的 click，避免误选 */
+  if (lpFired) { lpFired = false; return; }
   const railBtn = e.target.closest(".rail button[data-s]");
   if (railBtn) { await go(railBtn.dataset.s); return; }
   const el = e.target.closest("[data-act]");
@@ -1660,12 +1723,6 @@ document.addEventListener("click", async (e) => {
       } else s.answers[q.globalId] = [opt];
       renderSession(); break;
     }
-    case "exclOpt": {
-      const s = state.practice.session, q = s.questions[s.idx], opt = Number(v);
-      const ex = s.excluded[q.globalId] || [];
-      s.excluded[q.globalId] = ex.includes(opt) ? ex.filter((x) => x !== opt) : [...ex, opt];
-      renderSession(); break;
-    }
     case "submit": doSubmit(); break;
     case "revToggle": {
       const item = el.closest(".review-item");
@@ -1736,13 +1793,6 @@ document.addEventListener("click", async (e) => {
       catch (err) { /* 本地判定已生效，落库失败不阻塞 */ }
       renderWrongMain();
       break;
-    }
-    case "wExcl": {
-      const w = state.wrong, it = w.sel;
-      if (!it || w.quiz[it.id]) break;
-      const ex = w.excluded[it.id] || [];
-      w.excluded[it.id] = ex.includes(v) ? ex.filter((x) => x !== v) : [...ex, v];
-      renderWrongMain(); break;
     }
     case "wPrev":
     case "wNext": {

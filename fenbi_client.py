@@ -127,6 +127,126 @@ def _extract_options(accessories: list[dict] | None) -> list[str]:
     return []
 
 
+# ---------------------------------------------------------------- #
+# 富文本 → HTML（题面/解析/选项展示用，含图片与填空横线）
+# ---------------------------------------------------------------- #
+_IMG_PREFIX = "https://tiku.fenbi.com/api/questions/images/"
+
+
+def _esc_html(s: Any) -> str:
+    return html.escape(str(s if s is not None else ""), quote=False)
+
+
+def _blankify(s: str) -> str:
+    """填空横线：题面里的连续空白（半角空格/不间断空格 \\u00a0）转占位元素。"""
+    return re.sub("[\u00a0 ]{2,}", '<span class="q-blank"></span>', s)
+
+
+def _blankify_html(s: str) -> str:
+    """只替换 HTML 标签之间纯文本里的空白串，避免破坏标签属性。"""
+    return re.sub(
+        r">([^<]*)<",
+        lambda m: ">" + _blankify(m.group(1).replace("&nbsp;", "\u00a0")) + "<",
+        s,
+    )
+
+
+def _img_src(n: dict) -> str:
+    u = ""
+    for key in ("value", "url", "src"):
+        v = n.get(key)
+        if isinstance(v, str) and v.strip():
+            u = v.strip()
+            break
+        if isinstance(v, dict):
+            u = v.get("url") or v.get("src") or ""
+            if u:
+                break
+    u = str(u)
+    if not u:
+        return ""
+    if not u.startswith("http"):
+        u = _IMG_PREFIX + u.lstrip("/")
+    return u
+
+
+def ast_to_html(node: Any) -> str:
+    """粉笔富文本 AST → HTML。"""
+    parts: list[str] = []
+
+    def walk(n: Any) -> None:
+        if isinstance(n, list):
+            for item in n:
+                walk(item)
+            return
+        if not isinstance(n, dict):
+            return
+        name = n.get("name")
+        children = n.get("children") or []
+        if name == "txt":
+            parts.append(_blankify(_esc_html(n.get("value", ""))))
+        elif name == "img":
+            src = _img_src(n)
+            if src:
+                parts.append(
+                    f'<img class="q-img" src="{src}" alt="题目图片" '
+                    f'onerror="this.style.display=\'none\'">'
+                )
+        elif name == "p":
+            parts.append("<p>")
+            for c in children:
+                walk(c)
+            parts.append("</p>")
+        elif name == "li":
+            parts.append("<li>")
+            for c in children:
+                walk(c)
+            parts.append("</li>")
+        elif name in ("ul", "ol"):
+            parts.append(f"<{name}>")
+            for c in children:
+                walk(c)
+            parts.append(f"</{name}>")
+        else:  # doc 及未知节点：透传子节点
+            for c in children:
+                walk(c)
+
+    walk(node)
+    out = "".join(parts)
+    return out if out.strip() else ""
+
+
+def rich_to_html(raw: Any) -> str:
+    """自动识别 HTML 字符串 / AST，统一返回 HTML。"""
+    if raw is None:
+        return ""
+    if isinstance(raw, (dict, list)):
+        return ast_to_html(raw)
+    s = str(raw).strip()
+    if s[:1] in ("{", "["):
+        try:
+            converted = ast_to_html(json.loads(s))
+            if converted:
+                return converted
+        except (ValueError, TypeError):
+            pass
+    text = str(raw)
+    if "<" not in text:
+        return _blankify(_esc_html(text)).replace("\n", "<br>")
+    return _blankify_html(text)
+
+
+def extract_options_html(accessories: list[dict] | None) -> list[str]:
+    """选项 HTML。选项里的连续空格只是词组分隔，不转填空横线。"""
+    for acc in accessories or []:
+        if isinstance(acc, dict) and acc.get("options"):
+            return [
+                re.sub(r'<span class="q-blank"></span>', " ", rich_to_html(o))
+                for o in acc["options"]
+            ]
+    return []
+
+
 # --------------------------------------------------------------------------- #
 # 客户端
 # --------------------------------------------------------------------------- #
@@ -579,6 +699,7 @@ class FenbiClient:
                 "id": m.get("id"),
                 "globalId": m.get("globalId"),
                 "content": _rich_to_text(m.get("content")),
+                "contentHtml": rich_to_html(m.get("content")),
             }
             for m in materials or []
         ]
@@ -608,12 +729,17 @@ class FenbiClient:
             "id": sol.get("id"),
             "globalId": sol.get("globalId"),
             "type": sol.get("type"),
+            "materialId": sol.get("materialId"),
+            "materialGlobalId": sol.get("materialGlobalId"),
             "question": _rich_to_text(sol.get("content")),
+            "contentHtml": rich_to_html(sol.get("content")),
             "options": options,
+            "optionsHtml": extract_options_html(sol.get("accessories")),
             "correctAnswer": letter,
             "correctAnswerIndex": choice_index,
             "correctAnswerText": correct_text,
             "analysis": _rich_to_text(sol.get("solution")),
+            "analysisHtml": rich_to_html(sol.get("solution")),
             "source": sol.get("source"),
             "keypoints": [k.get("name") for k in sol.get("keypoints", [])],
             "myStatus": my.get("status"),

@@ -135,10 +135,7 @@ def rich_to_html(raw: Any) -> str:
 
 
 def _extract_options_html(accessories: list[dict] | None) -> list[str]:
-    for acc in accessories or []:
-        if isinstance(acc, dict) and acc.get("options"):
-            return [rich_to_html(o) for o in acc["options"]]
-    return []
+    return fc.extract_options_html(accessories)
 
 
 # ------------------------------------------------------------- 客户端 ------
@@ -350,20 +347,32 @@ def submit(ex_key: str, prefix: str, answers: list[dict]) -> dict:
     solutions_pack = client.get_solutions(ex_key, prefix)
 
     mine = {a["globalId"]: str(a.get("choice", "")).upper() for a in answers}
+    # 材料按 materialId 挂到每道题（HTML 优先，图推/材料题可显示图片）
+    matmap = {
+        str(m.get("globalId")): (m.get("contentHtml") or m.get("content") or "")
+        for m in (solutions_pack.get("materials") or [])
+    }
     items: list[dict] = []
     for s in solutions_pack.get("solutions", []):
         gid = s["globalId"]
         my_ans = mine.get(gid, "")
         correct_ans = (s.get("correctAnswer") or "").upper()
         is_right = bool(my_ans) and set(my_ans.split(",")) == set(correct_ans.split(","))
+        mref = s.get("materialId")
+        if mref is None:
+            mref = s.get("materialGlobalId")
         items.append({
             "globalId": gid,
             "question": s.get("question", ""),
+            "contentHtml": s.get("contentHtml", ""),
             "options": s.get("options", []),
+            "optionsHtml": s.get("optionsHtml", []),
+            "materialHtml": matmap.get(str(mref), "") if mref is not None else "",
             "myAnswer": my_ans,
             "correctAnswer": correct_ans,
             "correctAnswerText": s.get("correctAnswerText", ""),
             "analysis": s.get("analysis", ""),
+            "analysisHtml": s.get("analysisHtml", ""),
             "source": s.get("source", ""),
             "keypoints": s.get("keypoints", []),
             "correct": is_right,

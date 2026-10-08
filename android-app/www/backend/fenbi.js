@@ -175,7 +175,10 @@
   }
   function extractOptionsHtml(accessories) {
     for (const acc of accessories || [])
-      if (acc && acc.options) return acc.options.map(richToHtml);
+      if (acc && acc.options) return acc.options.map(function (o) {
+        /* 选项里的连续空格只是词组分隔，不转填空横线 */
+        return richToHtml(o).replace(/<span class="q-blank"><\/span>/g, " ");
+      });
     return [];
   }
   function extractOptionsText(accessories) {
@@ -399,7 +402,8 @@
     const userAnswers = solMeta.userAnswers || {};
     const solutions = (content.solutions || []).map(function (s) { return formatSolution(s, userAnswers); });
     const materials = (content.materials || []).map(function (m) {
-      return { id: m.id, globalId: m.globalId, content: richToText(m.content) };
+      return { id: m.id, globalId: m.globalId, content: richToText(m.content),
+               contentHtml: richToHtml(m.content) };
     });
     return { name: content.name || solMeta.name, materials: materials, solutions: solutions };
   }
@@ -419,9 +423,12 @@
     const my = userAnswers[sol.globalId] || {};
     return {
       id: sol.id, globalId: sol.globalId, type: sol.type,
-      question: richToText(sol.content), options: options,
+      materialId: sol.materialId, materialGlobalId: sol.materialGlobalId,
+      question: richToText(sol.content), contentHtml: richToHtml(sol.content),
+      options: options, optionsHtml: extractOptionsHtml(sol.accessories),
       correctAnswer: letter, correctAnswerIndex: choiceIndex,
-      correctAnswerText: correctText, analysis: richToText(sol.solution),
+      correctAnswerText: correctText,
+      analysis: richToText(sol.solution), analysisHtml: richToHtml(sol.solution),
       source: sol.source,
       keypoints: (sol.keypoints || []).map(function (k) { return k.name; }),
       myStatus: my.status,
@@ -623,6 +630,7 @@
     listLabels: listLabels, listPapers: listPapers,
     questionsBrief: questionsBrief, solutionsByQuestionIds: solutionsByQuestionIds,
     richToText: richToText, indexToLetter: indexToLetter, extractOptionsText: extractOptionsText,
+    richToHtml: richToHtml, extractOptionsHtml: extractOptionsHtml,
     getExerciseMeta: getExerciseMeta, getContentByMeta: getContentByMeta,
     formatSolution: formatSolution, getSolutions: getSolutions,
   };
