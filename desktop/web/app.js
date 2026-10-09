@@ -429,8 +429,6 @@ function renderSession() {
           <span class="k">${String.fromCharCode(65 + i)}</span><span>${o}</span></div>`;
       }).join("")
         : `<p class="muted">本题无选项，可直接在右侧询问小岸。</p>`}
-      <div class="q-prog"><i style="--w:${((s.idx + 1) / s.questions.length) * 100}%"></i>
-        <span>第 ${s.idx + 1} / ${s.questions.length} 题</span></div>
       <div class="q-dots">
         ${s.questions.map((qq, i) => `<i class="${s.answers[qq.globalId] ? "answered" : ""} ${i === s.idx ? "cur" : ""}"
           data-act="jump" data-v="${i}"></i>`).join("")}

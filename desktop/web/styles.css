@@ -222,12 +222,6 @@ body.theme-red .opt{background:rgba(255,255,255,.72)}
 .q-dots i{width:11px;height:11px;border-radius:50%;background:#dfe4ee;cursor:pointer}
 .q-dots i.answered{background:var(--blue)}
 .q-dots i.cur{outline:2px solid var(--orange);outline-offset:1px}
-/* 当前题位置细进度条 */
-.q-prog{display:flex;align-items:center;gap:10px;margin:16px 0 4px}
-.q-prog i{flex:1;height:6px;border-radius:4px;background:#e8ecf4;overflow:hidden;display:block;position:relative}
-.q-prog i::after{content:"";position:absolute;left:0;top:0;bottom:0;width:var(--w,0);
-  background:linear-gradient(90deg,#2f6bff,#5b8cff);border-radius:4px}
-.q-prog span{font-size:11px;color:var(--sub);flex:none;font-weight:600}
 /* 作答页底部固定操作栏：长题干滚动时按钮始终可见 */
 .sess-foot{position:sticky;bottom:-16px;z-index:4;
   margin:12px -100px -16px -20px;padding:11px 100px 16px 20px;
