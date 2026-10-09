@@ -34,6 +34,12 @@ body { font-size: 14px; -webkit-tap-highlight-color: transparent; }
   body.focus-mode .main-pane { flex: 1; padding: 12px 14px 24px; }
   .m-only { display: inline-block; }
 
+  /* 作答页底部固定操作栏：适配手机内边距（桌面负边距不适用） */
+  .sess-foot { margin: 12px -14px -20px; padding: 10px 14px 12px; bottom: -20px; }
+  body.focus-mode .sess-foot { margin: 12px -14px -24px; bottom: -24px; }
+  /* 图片全屏查看：手机上留边更小 */
+  .img-mask { padding: 12px; }
+
   /* 弹窗与悬浮 */
   .modal { max-width: 94vw; max-height: 84vh; padding: 16px; }
   .float-ball { right: 14px; bottom: 76px; width: 50px; height: 50px; }

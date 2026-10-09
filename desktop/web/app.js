@@ -429,11 +429,13 @@ function renderSession() {
           <span class="k">${String.fromCharCode(65 + i)}</span><span>${o}</span></div>`;
       }).join("")
         : `<p class="muted">本题无选项，可直接在右侧询问小岸。</p>`}
+      <div class="q-prog"><i style="--w:${((s.idx + 1) / s.questions.length) * 100}%"></i>
+        <span>第 ${s.idx + 1} / ${s.questions.length} 题</span></div>
       <div class="q-dots">
         ${s.questions.map((qq, i) => `<i class="${s.answers[qq.globalId] ? "answered" : ""} ${i === s.idx ? "cur" : ""}"
           data-act="jump" data-v="${i}"></i>`).join("")}
       </div>
-      <div class="row">
+      <div class="sess-foot">
         <button class="btn" data-act="nav" data-v="-1" ${s.idx === 0 ? "disabled" : ""}>上一题</button>
         <button class="btn pri" data-act="nav" data-v="1" ${s.idx === s.questions.length - 1 ? "disabled" : ""}>下一题</button>
         <div style="flex:1"></div>
@@ -516,6 +518,13 @@ function reviewItemHtml(it, i) {
         : (it.material ? `<div class="q-material">${blankify(it.material)}</div>` : "")}
       <div class="stem" style="font-size:14px">${hasHtml && it.contentHtml
         ? blankifyHtml(it.contentHtml) : blankify(it.question || "")}</div>
+      <div class="q-meta-bar">
+        ${it.difficulty != null ? `<span>难度 ${stars(it.difficulty)}</span>` : ""}
+        ${it.localAttempts
+          ? `<span>个人正确率 <b>${Math.round(it.localCorrect * 100 / it.localAttempts)}%</b>（${it.localAttempts} 次作答）</span>`
+          : ""}
+        ${it.keypoints.map((k) => `<span class="kp">${esc(k)}</span>`).join("")}
+      </div>
       ${opts.map((o, j) => {
         const L = String.fromCharCode(65 + j);
         const cls = correctSet.has(L) ? "right" : mySet.has(L) ? "bad" : "";
@@ -525,19 +534,15 @@ function reviewItemHtml(it, i) {
       }).join("")}
       <div class="analysis-box">
         <div class="t">${it.hist ? "题目解析" : "粉笔解析"}</div>
-        <div style="margin-bottom:6px">
-          ${it.difficulty != null ? `<span class="tag gray">难度 ${stars(it.difficulty)}</span>` : ""}
-          ${it.localAttempts
-            ? `<span class="tag gray">个人正确率 ${Math.round(it.localCorrect * 100 / it.localAttempts)}%（${it.localAttempts} 次作答）</span>`
-            : ""}
+        <div class="ans-row">
+          <span class="ans-badge ${it.correct ? "ok" : "no"}">正确答案 ${esc(it.correctAnswer) || "—"}</span>
+          ${it.correct ? `<span class="ans-badge plain">回答正确 🎉</span>`
+            : `<span class="ans-badge mine">${it.myAnswer ? "我的答案 " + esc(it.myAnswer) : notAns}</span>`}
         </div>
-        <div><b>正确答案：${esc(it.correctAnswer)}</b>
-          ${it.correctAnswerText ? "（" + esc(it.correctAnswerText) + "）" : ""}</div>
+        ${it.correctAnswerText ? `<div class="muted" style="margin:6px 0">${esc(it.correctAnswerText)}</div>` : ""}
         <div style="margin-top:6px">${it.analysisHtml
-          ? it.analysisHtml : esc(it.analysis || "")}</div>
+          ? emphAnalysis(it.analysisHtml) : emphAnalysis(esc(it.analysis || ""))}</div>
         ${it.source ? `<div class="muted" style="margin-top:7px">出处：${esc(it.source)}</div>` : ""}
-        <div style="margin-top:7px">
-          ${it.keypoints.map((k) => `<span class="tag blue">${esc(k)}</span>`).join("")}</div>
       </div>
       <button class="btn ghost sm" data-act="askAbout" data-id="${it.globalId}">问小岸这道题</button>
     </div>
@@ -690,7 +695,7 @@ function renderWrongMain() {
       ${revealed ? `
       <div class="analysis-box">
         <div class="t">粉笔解析</div>
-        <div class="ana-body">${it.analysis || "（暂无解析）"}</div>
+        <div class="ana-body">${emphAnalysis(it.analysis || "（暂无解析）")}</div>
         ${it.source ? `<div class="muted" style="margin-top:7px">${esc(it.source)}</div>` : ""}
       </div>` : `
       <div class="muted" style="font-size:12px;text-align:center;margin:12px 0 2px">
@@ -1627,6 +1632,37 @@ document.addEventListener("contextmenu", (e) => {
   if (e.target.closest && e.target.closest('.opt[data-act="pick"], .opt[data-act="wPick"]'))
     e.preventDefault();
 });
+
+/* 解析关键句着色：只在标签之间的文本段替换，不碰标签属性 */
+function emphAnalysis(html) {
+  return String(html || "").split(/(<[^>]*>)/g).map((seg) => {
+    if (seg.startsWith("<")) return seg;
+    return seg
+      .replace(/((?:正确答案|故选|应选|因此选|答案是)[^，。；！？\s<]{0,8})/g,
+        '<b class="kw-ok">$1</b>')
+      .replace(/(排除|不能同时出现|不成立|与题干不一致|错误|不正确)/g,
+        '<b class="kw-no">$1</b>');
+  }).join("");
+}
+
+/* 点击题目/解析里的图片 → 全屏查看，点击任意处关闭 */
+document.addEventListener("click", (e) => {
+  const mask = document.querySelector(".img-mask");
+  if (mask) {
+    mask.classList.remove("on");
+    setTimeout(() => mask.remove(), 180);
+    if (!e.target.closest(".stem img, .q-material img, .analysis-box img, .opt-body img"))
+      return;
+  }
+  const img = e.target.closest(".stem img, .q-material img, .analysis-box img, .opt-body img");
+  if (!img) return;
+  e.stopPropagation();
+  const m = document.createElement("div");
+  m.className = "img-mask";
+  m.innerHTML = `<img src="${img.currentSrc || img.src}" alt="图片查看">`;
+  document.body.appendChild(m);
+  requestAnimationFrame(() => m.classList.add("on"));
+}, true);
 
 /* #####################################################################
    全局事件委托
