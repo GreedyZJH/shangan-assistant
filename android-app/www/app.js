@@ -1213,21 +1213,26 @@ async function renderSettings() {
     </div>
 
     <div class="card">
-      <h3>🔤 字体与字号</h3>
-      <p class="muted" style="margin-bottom:10px">选择阅读舒适的字体与字号，立即生效（仅本机偏好，不影响数据）。</p>
-      <div class="row" style="align-items:flex-end;margin-bottom:11px">
-        <div style="flex:1"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">字体</label>
+      <div class="row" style="margin-bottom:12px">
+        <h3 style="margin:0">🔤 字体与字号</h3>
+        <div style="flex:1"></div>
+        <span class="muted" style="font-size:11.5px;align-self:center">仅本机偏好，不影响学习数据</span>
+      </div>
+      <div class="row" style="align-items:flex-end">
+        <div style="flex:1;min-width:0"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">字体</label>
           <select class="field-input" id="setFont">
             ${FONT_CHOICES.map((f) => `<option value="${f[0]}" ${fontCur === f[0] ? "selected" : ""}
               style="font-family:${f[2]}">${f[1]}</option>`).join("")}
           </select></div>
-        <div><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">字号</label>
-          <div class="mini-seg">
-            ${FONT_SCALES.map(([v, t]) => `<span class="${scaleCur === v ? "on" : ""}"
-              data-act="fontScale" data-v="${v}">${t}</span>`).join("")}
-          </div></div>
+        <div style="width:110px"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">字号</label>
+          <select class="field-input" id="setFontScale">
+            ${FONT_SCALES.map(([v, t]) => `<option value="${v}" ${scaleCur === v ? "selected" : ""}>${t}</option>`).join("")}
+          </select></div>
       </div>
-      <p class="muted" style="font-size:12px">提示：特大字号适合长时间刷题护眼；手机端同样生效。</p>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" data-act="fontReset">恢复默认</button>
+        <span class="muted" style="font-size:11.5px;align-self:center">特大字号适合长时间刷题护眼，手机端同样生效</span>
+      </div>
     </div>
 
     <div class="card">
@@ -2188,8 +2193,9 @@ document.addEventListener("click", async (e) => {
       state.init.general = body; updateTop();
       toast("设置已保存", "", "ok", 2200); break;
     }
-    case "fontScale": {
-      localStorage.setItem("saFontScale", v);
+    case "fontReset": {
+      localStorage.removeItem("saFontFamily");
+      localStorage.removeItem("saFontScale");
       applyFontPrefs(); renderSettings();
       break;
     }
@@ -2270,6 +2276,10 @@ document.addEventListener("input", (e) => {
 document.addEventListener("change", (e) => {
   if (e.target.id === "setFont") {
     localStorage.setItem("saFontFamily", e.target.value);
+    applyFontPrefs(); renderSettings();
+  }
+  if (e.target.id === "setFontScale") {
+    localStorage.setItem("saFontScale", e.target.value);
     applyFontPrefs(); renderSettings();
   }
   if (e.target.id === "setProvider") {
