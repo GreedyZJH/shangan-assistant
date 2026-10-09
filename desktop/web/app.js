@@ -1114,10 +1114,31 @@ const PROVIDERS = [
   ["自定义", "", ""],
 ];
 
+/* ---------------------- 字体偏好（本机 localStorage，双端一致） ------------- */
+const FONT_CHOICES = [
+  ["yahei", "微软雅黑（默认）", '"Microsoft YaHei","Segoe UI",system-ui,sans-serif'],
+  ["song", "宋体", 'SimSun,"Songti SC",serif'],
+  ["hei", "黑体", 'SimHei,"Heiti SC",sans-serif'],
+  ["kai", "楷体", 'KaiTi,"Kaiti SC",serif'],
+  ["fang", "仿宋", 'FangSong,"Fangsong SC",serif'],
+  ["deng", "等线", 'DengXian,"Microsoft YaHei",sans-serif'],
+];
+const FONT_SCALES = [["0.9", "小"], ["1", "标准"], ["1.1", "大"], ["1.25", "特大"]];
+
+function applyFontPrefs() {
+  const f = localStorage.getItem("saFontFamily") || "yahei";
+  const s = localStorage.getItem("saFontScale") || "1";
+  const c = FONT_CHOICES.find((x) => x[0] === f);
+  if (c) document.body.style.fontFamily = c[2];
+  document.body.style.zoom = s;
+}
+
 async function renderSettings() {
   $("crumb").innerHTML = `<b>设置</b>`;
   $("listPane").style.display = "none";
   const m = state.init.model, g = state.init.general;
+  const fontCur = localStorage.getItem("saFontFamily") || "yahei";
+  const scaleCur = localStorage.getItem("saFontScale") || "1";
   $("mainPane").innerHTML = `
   <div style="max-width:660px;margin:0 auto">
     <div class="card">
@@ -1189,6 +1210,24 @@ async function renderSettings() {
         <div class="bg-opt ${state.init.general.bg_mode === "red" ? "on" : ""}"
           data-act="bgSet" data-v="red"><i style="background:#fce4e2"></i>红色</div>
       </div>
+    </div>
+
+    <div class="card">
+      <h3>🔤 字体与字号</h3>
+      <p class="muted" style="margin-bottom:10px">选择阅读舒适的字体与字号，立即生效（仅本机偏好，不影响数据）。</p>
+      <div class="row" style="align-items:flex-end;margin-bottom:11px">
+        <div style="flex:1"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">字体</label>
+          <select class="field-input" id="setFont">
+            ${FONT_CHOICES.map((f) => `<option value="${f[0]}" ${fontCur === f[0] ? "selected" : ""}
+              style="font-family:${f[2]}">${f[1]}</option>`).join("")}
+          </select></div>
+        <div><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">字号</label>
+          <div class="mini-seg">
+            ${FONT_SCALES.map(([v, t]) => `<span class="${scaleCur === v ? "on" : ""}"
+              data-act="fontScale" data-v="${v}">${t}</span>`).join("")}
+          </div></div>
+      </div>
+      <p class="muted" style="font-size:12px">提示：特大字号适合长时间刷题护眼；手机端同样生效。</p>
     </div>
 
     <div class="card">
@@ -2149,6 +2188,11 @@ document.addEventListener("click", async (e) => {
       state.init.general = body; updateTop();
       toast("设置已保存", "", "ok", 2200); break;
     }
+    case "fontScale": {
+      localStorage.setItem("saFontScale", v);
+      applyFontPrefs(); renderSettings();
+      break;
+    }
     case "bgSet": {
       const body = { ...state.init.general, bg_mode: v };
       try {
@@ -2224,6 +2268,10 @@ document.addEventListener("input", (e) => {
 
 /* 切换 AI 服务商：自动填充地址与模型 */
 document.addEventListener("change", (e) => {
+  if (e.target.id === "setFont") {
+    localStorage.setItem("saFontFamily", e.target.value);
+    applyFontPrefs(); renderSettings();
+  }
   if (e.target.id === "setProvider") {
     const p = PROVIDERS.find((x) => x[0] === e.target.value);
     if (p && p[1]) {
@@ -2293,6 +2341,7 @@ async function boot() {
   try {
     state.init = await api.app_init();
     applyTheme();
+    applyFontPrefs();
     updateTop();
     await loadChat();
     await go("practice");
