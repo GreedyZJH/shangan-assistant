@@ -208,7 +208,7 @@ function renderTreeBox() {
       <div class="tree-label ${p.selNode && p.selNode.id === x.node.id ? "on" : ""}"
         data-act="selKp" data-id="${x.node.id}">
         <span class="leaf-dot"></span>${esc(x.node.name)}
-        <span class="muted" style="margin-left:auto;font-size:10px">${esc(x.path.slice(-2).join(" / "))}</span>
+        <span class="muted" style="margin-left:auto;font-size:11px">${esc(x.path.slice(-2).join(" / "))}</span>
       </div>`).join("") : `<p class="muted" style="padding:10px">未找到相关知识点</p>`;
     return;
   }
@@ -226,7 +226,7 @@ function treeNodeHtml(n, path) {
       <span class="arrow" ${hasKids ? `data-act="treeToggle" data-id="${n.id}"` : ""}>
         ${hasKids ? "▶" : ""}</span>
       <span data-act="selKp" data-id="${n.id}" style="flex:1">${esc(n.name)}</span>
-      ${n.count != null ? `<span class="muted" style="font-size:10px">${n.count}</span>` : ""}
+      ${n.count != null ? `<span class="muted" style="font-size:11px">${n.count}</span>` : ""}
     </div>
     ${hasKids ? `<div class="tree-children">${n.children.map((c) =>
       treeNodeHtml(c, here)).join("")}</div>` : ""}
@@ -336,9 +336,9 @@ async function renderHistoryTab() {
       <span class="leaf-dot"></span>
       <span style="flex:1;min-width:0">
         <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.source_name || "练习")}</span>
-        <span class="muted" style="font-size:10px">${kindLabel} · ${fmtTs(h.finished_at)}</span>
+        <span class="muted" style="font-size:11px">${kindLabel} · ${fmtTs(h.finished_at)}</span>
       </span>
-      <span class="muted" style="font-size:10px;text-align:right;line-height:1.5">
+      <span class="muted" style="font-size:11px;text-align:right;line-height:1.5">
         ${h.correct_count}/${h.total_count} · ${acc}%<br>${fmtHMS(h.duration_sec)}</span>
     </div>`;
   }).join("");
@@ -370,9 +370,19 @@ async function renderPaperTab() {
 
 async function loadPapers() {
   const p = state.practice;
+  /* 同一分类+页码已有缓存时直接复用，避免切 tab 反复请求 */
+  const cacheKey = p.labelId + ":" + p.paperPage;
+  if (p.paperCacheKey === cacheKey && p.paperCache) { renderPaperBox(); return; }
   $("paperBox").innerHTML = `<p class="muted" style="padding:8px">加载试卷中…</p>`;
   const data = await api.fenbi_papers(p.labelId, p.paperPage, 10, "");
+  p.paperCacheKey = cacheKey; p.paperCache = data;
   p.papers = data.papers || [];
+  renderPaperBox();
+}
+
+function renderPaperBox() {
+  const p = state.practice;
+  const data = p.paperCache;
   $("paperPageInfo").textContent = `${p.paperPage + 1}/${data.pageInfo.totalPage}`;
   $("paperBox").innerHTML = p.papers.map((pa) => `
     <div class="paper-item" data-act="startPaper" data-id="${pa.id}">
@@ -417,6 +427,7 @@ function renderSession() {
       <div style="flex:1"></div>
       <span class="multi-toggle ${isMulti ? "on" : ""}" data-act="multi">多选模式</span>
       <span class="timer" id="sessTimer">${fmtHMS(s.elapsed / 1000)}</span>
+      <button class="btn ghost sm" data-act="sessExit">退出练习</button>
     </div>
     <div class="progress"><i style="width:${(answeredCount / s.questions.length) * 100}%"></i></div>
 
@@ -446,11 +457,12 @@ function renderSession() {
 /* ---------------------------- 交卷+回顾 ----------------------- */
 async function doSubmit() {
   const p = state.practice, s = p.session;
-  const unanswered = s.questions.filter((q) => !s.answers[q.globalId]);
-  if (unanswered.length) {
+  const unIdx = s.questions.map((q, i) => ({ q, i }))
+    .filter((x) => !s.answers[x.q.globalId]).map((x) => x.i);
+  if (unIdx.length) {
     const ok = await askConfirm("还有题目未作答",
-      `有 ${unanswered.length} 道题未作答，未作答将计为错误，确定交卷？`, "仍然交卷");
-    if (!ok) return;
+      `第 ${unIdx.map((i) => i + 1).join("、")} 题未作答，未作答将计为错误，确定交卷？`, "仍然交卷");
+    if (!ok) { s.idx = unIdx[0]; renderSession(); return; }
   }
   const btn = $("submitBtn");
   btn.disabled = true; btn.textContent = "交卷中…";
@@ -578,13 +590,14 @@ async function renderWrong() {
       data-act="wmod" data-v="${esc(m.name)}">
       <span class="ic" style="font-size:11px">${esc(m.name.slice(0, 2))}</span>
       <span class="tx">${esc(m.name)}</span>
-      <span class="muted" style="font-size:10px">掌握${m.mastery ?? 0}%</span>
+      <span class="muted" style="font-size:11px">掌握${m.mastery ?? 0}%</span>
       <b class="muted">${m.count}</b></div>`).join("") ||
       `<p class="muted" style="padding:6px">暂无错题</p>`}
     <div class="pane-title">错题列表</div>
     ${w.list.map(wrongItemHtml).join("") || `<p class="muted" style="padding:6px">没有符合条件的错题</p>`}`;
 
-  if (!w.sel && w.list.length) w.sel = w.list[0];
+  /* 手机端不自动选中首条：focus-mode 会直接铺满详情，用户得先返回列表 */
+  if (!w.sel && w.list.length && window.innerWidth > 760) w.sel = w.list[0];
   renderWrongMain();
 }
 
@@ -827,6 +840,14 @@ async function syncWrongFromCloud(module = "") {
 /* #####################################################################
    笔记
 ##################################################################### */
+/* 笔记切换/新建前检查未保存修改，避免静默丢失 */
+async function notesGuard() {
+  if (!state.notes.dirty) return true;
+  const ok = await askConfirm("有未保存的修改", "当前笔记的改动尚未保存，离开后将丢失。确定继续？", "放弃修改");
+  if (ok) state.notes.dirty = false;
+  return ok;
+}
+
 async function renderNotes() {
   const n = state.notes;
   $("crumb").innerHTML = `笔记 / <b>${n.sel ? n.sel.title : "全部"}</b>`;
@@ -1078,9 +1099,7 @@ function renderReportMain() {
         : `<p class="muted" style="padding:6px">点击“生成点评”，小岸会根据你的真实数据给出下周建议（需配置模型）。</p>`}
     </div>
 
-    <div class="row">
-      <button class="btn pri" data-act="openShare">📤 分享学习报告</button>
-    </div>`;
+`;
 }
 
 /* #####################################################################
@@ -1328,6 +1347,7 @@ function renderChat() {
       <span class="bot-ava">岸</span>
       <div><b style="font-size:13px">小岸 · AI 辅导</b>
       <div class="muted" id="chatCtxLabel">随时可以问我</div></div>
+      <button class="min-btn" data-act="chatClear" title="清空对话">🧹</button>
       <button class="min-btn" data-act="chatMin">—</button>
     </div>
     <div class="chat-body" id="chatBody">
@@ -1567,6 +1587,10 @@ window.__appEvent = (ev, p) => {
     const m = state.chat.msgs.find((x) => String(x.id) === String(p.id));
     if (el && m) el.innerHTML = md(m.content);   /* 收尾强制整段渲染 */
     if (el && !m && !el.textContent) el.textContent = "（已完成）";
+    /* 聊天窗收起时亮红点，打开后清除 */
+    const chatOn = $("floatChat").classList.contains("on");
+    const badge = $("unreadBadge");
+    if (badge && !chatOn) badge.style.display = "";
   }
   if (ev === "chat:error") {
     const el = document.querySelector(`[data-mid="${p.id}"]`);
@@ -1754,8 +1778,31 @@ document.addEventListener("click", async (e) => {
       if (s.multi.has(q.globalId)) {
         s.answers[q.globalId] = cur.includes(opt)
           ? cur.filter((x) => x !== opt) : [...cur, opt];
+      } else if (cur.length && !cur.includes(opt)) {
+        s.multiHint = s.multiHint || new Set();
+        if (!s.multiHint.has(q.globalId)) {
+          /* 疑似多选：每题只提醒一次，避免改答案被反复打断 */
+          s.multiHint.add(q.globalId);
+          const openMulti = await askConfirm("可能是多选题",
+            "这题已选过答案。要开启多选模式追加选项，还是替换为新答案？", "开启多选");
+          if (openMulti) {
+            s.multi.add(q.globalId);
+            s.answers[q.globalId] = [...cur, opt];
+            renderSession(); break;
+          }
+        }
+        s.answers[q.globalId] = [opt];
       } else s.answers[q.globalId] = [opt];
       renderSession(); break;
+    }
+    case "sessExit": {
+      const s = state.practice.session;
+      if (!s) break;
+      const ok = await askConfirm("退出练习", "当前作答进度不会保存，确定退出？", "仍然退出");
+      if (!ok) break;
+      clearInterval(s.int);
+      state.practice.session = null;
+      render(); break;
     }
     case "submit": doSubmit(); break;
     case "revToggle": {
@@ -1852,11 +1899,13 @@ document.addEventListener("click", async (e) => {
 
     /* 笔记 */
     case "noteNew": {
+      if (!(await notesGuard())) break;
       const r = await api.notes_save({ title: "新建笔记", body: "", tags: "" });
       state.notes.sel = { id: r.id, title: "新建笔记", body: "", tags: "" };
       renderNotes(); break;
     }
     case "noteSel":
+      if (!(await notesGuard())) break;
       state.notes.sel = state.notes.list.find((x) => x.id === Number(id));
       renderNotes(); break;
     case "noteEdit": state.notes.preview = false; renderNotes(); break;
@@ -1870,6 +1919,7 @@ document.addEventListener("click", async (e) => {
       try {
         await api.notes_save(body);
         state.notes.sel = { ...state.notes.sel, ...body };
+        state.notes.dirty = false;
         toast("已保存", "", "ok", 2000); renderNotes();
       } catch (err) { toast("保存失败", errText(err), "err"); }
       break;
@@ -1907,12 +1957,20 @@ document.addEventListener("click", async (e) => {
       renderPlan(); break;
     }
     case "taskToggle": await api.tasks_toggle(id); renderPlan(); break;
-    case "taskDel": await api.tasks_delete(id); renderPlan(); break;
+    case "taskDel": {
+      const ok = await askConfirm("删除任务", "确定删除这条任务？", "删除");
+      if (!ok) break;
+      await api.tasks_delete(id); renderPlan(); break;
+    }
     case "focusStart": {
       const f = state.plan.focus;
       f.running = true; f.last = Date.now();
       clearInterval(f.int);
-      f.int = setInterval(() => { f.elapsed += Date.now() - f.last; f.last = Date.now(); }, 250);
+      f.int = setInterval(() => {
+        f.elapsed += Date.now() - f.last; f.last = Date.now();
+        const el = document.querySelector(".focus-time");
+        if (el) el.textContent = fmtHMS(f.elapsed / 1000);
+      }, 250);
       renderPlan(); break;
     }
     case "focusPause": {
@@ -2120,6 +2178,17 @@ document.addEventListener("click", async (e) => {
     }
 
     /* 悬浮对话 */
+    case "chatClear": {
+      const ok = await askConfirm("清空对话", "将删除本机保存的全部聊天记录，确定清空？", "清空");
+      if (!ok) break;
+      try {
+        await api.chat_clear();
+        state.chat.msgs = [];
+        renderChat();
+        toast("已清空对话", "", "ok", 2000);
+      } catch (err) { toast("清空失败", errText(err), "err"); }
+      break;
+    }
     case "chatMin":
       $("floatChat").classList.remove("on");
       $("floatBall").style.display = "flex"; break;
@@ -2145,6 +2214,7 @@ document.addEventListener("input", (e) => {
     clearTimeout(state.notes._t);
     state.notes._t = setTimeout(() => renderNotes(), 300);
   }
+  if (name === "noteField") state.notes.dirty = true;
   if (name === "labelSel") state.practice.labelId = Number(e.target.value), loadPapers();
   if (name === "setTemp") {
     const lab = e.target.parentElement.querySelector("label");
@@ -2174,11 +2244,15 @@ document.addEventListener("keydown", (e) => {
 $("floatBall").addEventListener("click", () => {
   $("floatChat").classList.add("on");
   $("floatBall").style.display = "none";
+  const badge = $("unreadBadge");
+  if (badge) badge.style.display = "none";
   renderChat();
 });
 function openChat() {
   $("floatChat").classList.add("on");
   $("floatBall").style.display = "none";
+  const badge = $("unreadBadge");
+  if (badge) badge.style.display = "none";
   renderChat();
 }
 
@@ -2189,10 +2263,18 @@ $("shareMask").addEventListener("click", (e) => {
   if (e.target.id === "shareMask") $("shareMask").classList.remove("on");
 });
 
-$("bellBtn").addEventListener("click", () => {
-  toast("今日提醒", state.init.general.strict_mode
-    ? "严格模式已开启，到点没完成我会找你谈话。"
-    : "温和模式：仅记录学习情况。", "info", 3000);
+$("bellBtn").addEventListener("click", async () => {
+  const g = state.init.general, c = state.init.counts;
+  const target = g.daily_target || 60;
+  let taskPart = "";
+  try {
+    const tasks = (await api.tasks_list("")) || [];
+    const done = tasks.filter((t) => t.status === "done").length;
+    taskPart = tasks.length ? `；今日任务完成 ${done}/${tasks.length} 项` : "；今日还没有任务";
+  } catch (e) { /* 任务拉取失败不影响主信息 */ }
+  toast("今日学习概况",
+    `已刷题 ${c.todayQuestions}/${target} 道${taskPart}；提醒时间 ${g.reminder_time || "未设置"}` +
+    (g.strict_mode ? "（严格模式，到点没完成小岸会找你谈话）" : "（温和模式）"), "reminder", 7000);
 });
 
 /* #####################################################################

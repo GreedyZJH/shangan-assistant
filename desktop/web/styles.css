@@ -11,7 +11,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:"Microsoft YaHei","Segoe UI",system-ui,sans-serif;
-  background:#f4f6fb;color:var(--text);font-size:13px;overflow:hidden;
+  background:#f4f6fb;color:var(--text);font-size:13.5px;overflow:hidden;
   display:flex;flex-direction:column}
 button{font-family:inherit}
 
@@ -24,7 +24,7 @@ button{font-family:inherit}
   font-size:15px;font-weight:700}
 .brand-tx{display:flex;flex-direction:column;line-height:1.25}
 .brand-tx b{font-size:14px}
-.brand-tx small{font-size:10.5px;color:var(--sub)}
+.brand-tx small{font-size:11px;color:var(--sub)}
 .topbar-credit{margin-left:14px;font-size:11px;color:#9aa3b2;letter-spacing:.3px;
   user-select:none;white-space:nowrap}
 
@@ -55,7 +55,7 @@ button{font-family:inherit}
   color:var(--sub)}
 .rail button .ic{width:32px;height:32px;border-radius:10px;background:var(--panel);
   display:flex;align-items:center;justify-content:center;font-size:15px}
-.rail button span:last-child{font-size:10px}
+.rail button span:last-child{font-size:11px}
 .rail button:hover{color:var(--text)}
 .rail button.on{color:var(--blue)}
 .rail button.on .ic{background:var(--blue-bg)}
@@ -164,7 +164,7 @@ body.theme-red .opt{background:rgba(255,255,255,.72)}
 .tree-label:hover{background:#fff}
 .tree-label.on{background:linear-gradient(135deg,#eef3ff,#e3ebff);color:var(--blue);
   font-weight:600;box-shadow:0 2px 6px rgba(47,107,255,.12)}
-.tree-label .arrow{width:13px;font-size:9px;color:var(--sub);transition:.15s;flex:none}
+.tree-label .arrow{width:13px;font-size:10px;color:var(--sub);transition:.15s;flex:none}
 .tree-node.open>.tree-label .arrow{transform:rotate(90deg)}
 .tree-children{display:none;padding-left:15px}
 .tree-node.open>.tree-children{display:block}
@@ -291,7 +291,7 @@ body.theme-red .opt{background:rgba(255,255,255,.72)}
 .mastery-ring{width:36px;height:36px;border-radius:50%;flex:none;
   display:flex;align-items:center;justify-content:center}
 .mastery-ring i{width:28px;height:28px;background:#fff;border-radius:50%;font-style:normal;
-  display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:600}
+  display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600}
 
 /* ---- V1.2 今日推荐：薄弱点特训 + 到期复习 ---- */
 .weak-item{display:flex;align-items:center;gap:10px;padding:9px 4px;
@@ -333,13 +333,13 @@ textarea.note-edit{min-height:330px;resize:vertical;line-height:1.8}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
 .cal-grid i{height:24px;border-radius:5px;position:relative}
 .cal-grid i span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font-size:10px;color:var(--sub)}
+  font-size:11px;color:var(--sub)}
 .cal-grid i.done{background:#bcd4ff}
 .cal-grid i.done span{color:#1d4fd8}
 .cal-grid i.today{outline:2px solid var(--orange)}
 .bars{display:flex;align-items:flex-end;gap:9px;height:100px;padding-top:8px}
 .bars i{flex:1;background:#cdddff;border-radius:6px 6px 0 0;position:relative;min-height:3px}
-.bars span{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font-size:10px;color:var(--sub)}
+.bars span{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font-size:11px;color:var(--sub)}
 
 .task{display:flex;align-items:center;gap:10px;padding:11px 13px;border:1px solid var(--line);
   border-radius:11px;margin-bottom:8px;background:#fff}
@@ -370,7 +370,7 @@ textarea.note-edit{min-height:330px;resize:vertical;line-height:1.8}
 .trend{display:flex;align-items:flex-end;gap:9px;height:110px;padding:0 4px}
 .trend i{flex:1;border-radius:6px 6px 0 0;position:relative;min-height:4px}
 .trend i span{position:absolute;bottom:-20px;left:0;right:0;text-align:center;
-  font-size:10px;color:var(--sub)}
+  font-size:11px;color:var(--sub)}
 .ai-review{background:linear-gradient(135deg,#eef3ff,#f6f9ff);border:1px solid #d5e1ff;
   border-radius:13px;padding:14px 16px;display:flex;gap:11px;line-height:1.8;font-size:13px}
 .ai-review h2,.ai-review h3{margin:8px 0 4px;font-size:14px}
