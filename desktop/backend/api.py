@@ -72,6 +72,7 @@ def _wrong_row(r: sqlite3.Row) -> dict:
     d["nextReviewLabel"] = _ms_to_date_label(r["next_review_at"])
     d["masteryEff"] = _mastery_eff(r["mastery"], r["last_review_at"],
                                    r["status"] or "active")
+    d["starred"] = int(r["starred"] or 0) if "starred" in r.keys() else 0
     d.pop("options_json", None)
     return d
 
@@ -147,6 +148,24 @@ def practice_start_paper(paper_id: int) -> dict:
         "paper", paper_id, data["name"], "xingce",
         data["key"], len(data["questions"]))
     return {**data, "sessionId": sid, "module": ""}
+
+
+def practice_start_mock() -> dict:
+    """模拟考：取最新一套整卷进入限时作答（行测约 120 分钟）。"""
+    papers = fenbi_svc.list_papers("xingce", 0, 0, 1, "")
+    items = papers.get("list") or papers.get("papers") or []
+    if not items:
+        raise RuntimeError("未找到可用整卷，请先在「整卷」页同步试卷。")
+    pid = items[0].get("id") or items[0].get("paperId")
+    data = fenbi_svc.start_paper("xingce", int(pid))
+    sid = storage.create_session(
+        "mock", pid, data["name"], "xingce",
+        data["key"], len(data["questions"]))
+    # 行测默认 120 分钟；题量若明显不同则按比例折算
+    total = len(data["questions"]) or 130
+    limit_sec = max(60 * 30, round(120 * 60 * total / 130))
+    return {**data, "sessionId": sid, "module": "", "mock": True,
+            "limitSec": limit_sec}
 
 
 def practice_similar(payload: dict | None = None) -> dict:
@@ -406,12 +425,17 @@ def practice_history_detail(session_id: int) -> dict:
 
 # ================================================================== 错题 ====
 def wrong_list(query: str = "", status: str = "active", module: str = "",
-               sort: str = "due") -> list[dict]:
+               sort: str = "due", min_wrong: int = 0, starred: int = 0) -> list[dict]:
     sql = "SELECT * FROM wrong_questions WHERE status=?"
     params: list = [status]
     if module:
         sql += " AND module_name=?"
         params.append(module)
+    if min_wrong:
+        sql += " AND wrong_count>=?"
+        params.append(int(min_wrong))
+    if starred:
+        sql += " AND starred=1"
     if query:
         sql += " AND (content_html LIKE ? OR keypoint LIKE ?)"
         params += [f"%{query}%", f"%{query}%"]
@@ -421,19 +445,24 @@ def wrong_list(query: str = "", status: str = "active", module: str = "",
         # 掌握度低的排前面（最弱的先练），同分按复习时间
         out.sort(key=lambda d: (d["masteryEff"],
                                 d["next_review_at"] or 0, d["id"]))
+    elif sort == "star":
+        out.sort(key=lambda d: (0 if d.get("starred") else 1,
+                                d["next_review_at"] or 0, d["id"]))
     else:
         out.sort(key=lambda d: (d["next_review_at"] or 0, d["id"]))
     return out
 
 
-def wrong_due_list(limit: int = 50) -> list[dict]:
-    """今日到期复习队列：active 且 next_review_at<=现在，按到期先后排序。"""
+def wrong_due_list(limit: int = 50, offset: int = 0) -> list[dict]:
+    """今日到期复习队列：active 且 next_review_at<=现在，按到期先后排序。
+    offset 用于分批复习（前端一批拉 20 题，拉完再来一批）。"""
     limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
     rows = storage.query(
         "SELECT * FROM wrong_questions WHERE status='active' "
         "AND next_review_at IS NOT NULL AND next_review_at<=? "
-        "ORDER BY next_review_at ASC LIMIT ?",
-        (storage.now_ms(), limit))
+        "ORDER BY next_review_at ASC LIMIT ? OFFSET ?",
+        (storage.now_ms(), limit, offset))
     return [_wrong_row(r) for r in rows]
 
 
@@ -444,6 +473,62 @@ def wrong_due_count() -> int:
         "AND next_review_at IS NOT NULL AND next_review_at<=?",
         (storage.now_ms(),))
     return int(rows[0]["c"] or 0) if rows else 0
+
+
+def today_overview() -> dict:
+    """首页"今天要做什么"总览：到期复习 + 今日已刷 + 待办任务 + 目标。"""
+    today = storage.today_str()
+    day_start = int(time.mktime(date.today().timetuple()) * 1000)
+    general = storage.get_setting("general")
+    due = wrong_due_count()
+    today_q = storage.query_one(
+        "SELECT COUNT(*) c FROM question_results WHERE created_at>=? "
+        "AND source='practice'", (day_start,))["c"]
+    review_q = storage.query_one(
+        "SELECT COUNT(*) c FROM question_results WHERE created_at>=? "
+        "AND source='review'", (day_start,))["c"]
+    tasks_total = storage.query_one(
+        "SELECT COUNT(*) c FROM tasks WHERE date=?", (today,))["c"]
+    tasks_done = storage.query_one(
+        "SELECT COUNT(*) c FROM tasks WHERE date=? AND status='done'",
+        (today,))["c"]
+    target = int(general.get("daily_target", 60))
+    return {
+        "dueReview": due, "todayQuestions": int(today_q),
+        "todayReview": int(review_q),
+        "tasksTotal": int(tasks_total), "tasksDone": int(tasks_done),
+        "target": target,
+        "remainTarget": max(0, target - int(today_q)),
+    }
+
+
+def report_weekly() -> dict:
+    """学习周报：最近 7 天 vs 前 7 天的对比。"""
+    today = date.today()
+    this_start = int(time.mktime((today - timedelta(days=6)).timetuple()) * 1000)
+    end = int(time.mktime((today + timedelta(days=1)).timetuple()) * 1000)
+    prev_start = int(time.mktime((today - timedelta(days=13)).timetuple()) * 1000)
+
+    def agg(s0, s1):
+        r = storage.query_one(
+            "SELECT COUNT(*) total, COALESCE(SUM(correct),0) correct "
+            "FROM question_results WHERE created_at>=? AND created_at<?",
+            (s0, s1))
+        rev = storage.query_one(
+            "SELECT COUNT(*) c FROM question_results WHERE source='review' "
+            "AND created_at>=? AND created_at<?", (s0, s1))["c"]
+        t, c = r["total"], r["correct"]
+        return {"questions": int(t),
+                "accuracy": round(c * 100 / t) if t else 0,
+                "reviewCount": int(rev)}
+
+    this, prev = agg(this_start, end), agg(prev_start, this_start)
+    return {"this": this, "prev": prev,
+            "deltaQuestions": this["questions"] - prev["questions"],
+            "deltaAccuracy": this["accuracy"] - prev["accuracy"],
+            "streak": reports._streak(),
+            "label": f"{(today - timedelta(days=6)).strftime('%m/%d')} - "
+                     f"{today.strftime('%m/%d')}"}
 
 
 def wrong_modules() -> list[dict]:
@@ -506,6 +591,10 @@ def wrong_action(wrong_id: int, action: str) -> dict:
         storage.execute(
             "UPDATE wrong_questions SET mastery=?,last_review_at=?,next_review_at=? "
             "WHERE id=?", (mastery, t, nxt, wrong_id))
+        # 复习落库：计入 question_results，供报告/薄弱点统计复习效果
+        storage.add_question_result(
+            0, row["global_id"], row["module_name"] or "",
+            row["keypoint"] or "", True, source="review")
         return {"mastery": mastery, "nextReviewLabel": _ms_to_date_label(nxt)}
     if action == "fail":
         # 复习答错：掌握度回撤，明天再来（重学一轮）
@@ -514,6 +603,9 @@ def wrong_action(wrong_id: int, action: str) -> dict:
         storage.execute(
             "UPDATE wrong_questions SET mastery=?,last_review_at=?,next_review_at=? "
             "WHERE id=?", (mastery, t, nxt, wrong_id))
+        storage.add_question_result(
+            0, row["global_id"], row["module_name"] or "",
+            row["keypoint"] or "", False, source="review")
         return {"mastery": mastery, "nextReviewLabel": _ms_to_date_label(nxt)}
     if action == "master":
         storage.execute(
@@ -525,6 +617,12 @@ def wrong_action(wrong_id: int, action: str) -> dict:
             "UPDATE wrong_questions SET status='active',next_review_at=? WHERE id=?",
             (t + 86400 * 1000, wrong_id))
         return {"status": "active"}
+    if action == "star":
+        new_star = 0 if row["starred"] else 1
+        storage.execute(
+            "UPDATE wrong_questions SET starred=? WHERE id=?",
+            (new_star, wrong_id))
+        return {"starred": new_star}
     raise RuntimeError(f"未知操作：{action}")
 
 

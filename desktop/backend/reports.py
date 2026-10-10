@@ -108,6 +108,24 @@ def build_report(period: str) -> dict:
     )["s"]
     hours = round((sess_sec + focus_sec) / 3600, 1)
 
+    # 复习效果：本周期内"复习"来源的作答
+    review_rows = storage.query_one(
+        "SELECT COUNT(*) total, COALESCE(SUM(correct),0) correct "
+        "FROM question_results WHERE source='review' "
+        "AND created_at>=? AND created_at<?",
+        (start_ts, end_ts),
+    )
+    review_total = review_rows["total"]
+    review_correct = review_rows["correct"]
+    review_accuracy = round(review_correct * 100 / review_total) if review_total else 0
+    # 掌握度平均提升：对比本周期内 active 错题的 mastery 相对入库时的净变化
+    mastery_gain = storage.query_one(
+        "SELECT COALESCE(ROUND(AVG(mastery)),0) g FROM wrong_questions "
+        "WHERE status='active' AND last_review_at IS NOT NULL "
+        "AND last_review_at>=? AND last_review_at<?",
+        (start_ts, end_ts),
+    )["g"]
+
     return {
         "period": period,
         "periodLabel": label,
@@ -118,6 +136,12 @@ def build_report(period: str) -> dict:
         "streak": _streak(),
         "modules": modules,
         "wrongTrend": _wrong_trend(),
+        "review": {
+            "total": review_total,
+            "correct": review_correct,
+            "accuracy": review_accuracy,
+            "masteryAvg": int(mastery_gain or 0),
+        },
     }
 
 

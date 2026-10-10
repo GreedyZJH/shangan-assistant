@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS practice_sessions(
 CREATE TABLE IF NOT EXISTS question_results(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id INTEGER, created_at INTEGER, global_id TEXT,
-  module_name TEXT, keypoint TEXT, correct INTEGER
+  module_name TEXT, keypoint TEXT, correct INTEGER, source TEXT DEFAULT 'practice'
 );
 
 CREATE TABLE IF NOT EXISTS wrong_questions(
@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS wrong_questions(
   analysis TEXT, source TEXT,
   wrong_count INTEGER DEFAULT 1, mastery INTEGER DEFAULT 20,
   status TEXT DEFAULT 'active',
-  created_at INTEGER, last_review_at INTEGER, next_review_at INTEGER
+  created_at INTEGER, last_review_at INTEGER, next_review_at INTEGER,
+  starred INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS notes(
@@ -91,6 +92,20 @@ CREATE TABLE IF NOT EXISTS share_records(
 with _lock:
     _conn.executescript(SCHEMA)
     _conn.commit()
+
+# 轻量迁移：为老库补充新增列（重复执行安全）
+def _add_col_if_missing(table: str, col: str, ddl: str) -> None:
+    cols = [r["name"] for r in _conn.execute(f"PRAGMA table_info({table})")]
+    if col not in cols:
+        _conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        _conn.commit()
+
+
+with _lock:
+    _add_col_if_missing("question_results", "source",
+                        "source TEXT DEFAULT 'practice'")
+    _add_col_if_missing("wrong_questions", "starred",
+                        "starred INTEGER DEFAULT 0")
 
 
 DEFAULTS: dict[str, Any] = {
@@ -190,11 +205,13 @@ def finish_session(session_id: int, correct: int, duration_sec: int) -> None:
 
 
 def add_question_result(session_id: int, global_id: str, module_name: str,
-                        keypoint: str, correct: bool) -> None:
+                        keypoint: str, correct: bool,
+                        source: str = "practice") -> None:
     insert(
         "INSERT INTO question_results(session_id,created_at,global_id,"
-        "module_name,keypoint,correct) VALUES(?,?,?,?,?,?)",
-        (session_id, now_ms(), global_id, module_name, keypoint, 1 if correct else 0),
+        "module_name,keypoint,correct,source) VALUES(?,?,?,?,?,?,?)",
+        (session_id, now_ms(), global_id, module_name, keypoint,
+         1 if correct else 0, source),
     )
 
 
