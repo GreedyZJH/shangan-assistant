@@ -67,7 +67,7 @@ button{font-family:inherit}
 .panes{flex:1;display:flex;min-height:0}
 .list-pane{width:262px;flex:none;background:var(--panel);border-right:1px solid var(--line);
   padding:12px;overflow:auto}
-.main-pane{flex:1;padding:16px 100px 16px 20px;overflow:auto;min-width:0;
+.main-pane{flex:1;padding:16px clamp(20px,6vw,100px) 16px 20px;overflow:auto;min-width:0;
   animation:fadein .18s ease}
 @keyframes fadein{from{opacity:0}to{opacity:1}}
 
@@ -222,9 +222,11 @@ body.theme-red .opt{background:rgba(255,255,255,.72)}
 .q-dots i{width:11px;height:11px;border-radius:50%;background:#dfe4ee;cursor:pointer}
 .q-dots i.answered{background:var(--blue)}
 .q-dots i.cur{outline:2px solid var(--orange);outline-offset:1px}
-/* 作答页底部固定操作栏：长题干滚动时按钮始终可见 */
+/* 作答页底部固定操作栏：长题干滚动时按钮始终可见
+   ⚠ 左右内边距必须与 .main-pane 的 clamp 值保持一致（负 margin 反向对齐） */
 .sess-foot{position:sticky;bottom:-16px;z-index:4;
-  margin:12px -100px -16px -20px;padding:11px 100px 16px 20px;
+  margin:12px calc(clamp(20px,6vw,100px) * -1) -16px -20px;
+  padding:11px clamp(20px,6vw,100px) 16px 20px;
   display:flex;align-items:center;gap:9px;
   background:var(--pane-bg,#f4f6fb);border-top:1px solid var(--line)}
 
@@ -485,3 +487,53 @@ textarea.note-edit{min-height:330px;resize:vertical;line-height:1.8}
 .q-blank{display:inline-block;min-width:4.5em;height:1em;border-bottom:1px solid #8a93a6;vertical-align:-2px;margin:0 2px}
 /* 移动端专用按钮：桌面隐藏，安卓端显示 */
 .m-only{display:none}
+
+/* ===================== V1.2.1 设计走查补丁（v23） ===================== */
+/* 键盘焦点可见性：可交互元素统一焦点环 */
+:where(button,.opt.click,.mini-seg span,.bg-opt,.switch,[tabindex]):focus-visible{
+  outline:2px solid var(--blue);outline-offset:2px}
+/* 聊天输入：单行输入框升级为自动增高的 textarea */
+.chat-input textarea{border:0;flex:1;font-size:12.5px;color:var(--text);outline:none;
+  font-family:inherit;line-height:1.55;resize:none;max-height:110px;background:transparent;padding:0}
+/* 聊天窗：窗口较矮时不超出视口（输入框保持可见） */
+.float-chat{max-height:calc(100vh - 120px)}
+/* 图表可读性：周标签预留底部空间 + 图例 */
+.trend{margin-bottom:22px}
+.bars{margin-bottom:24px}
+.chart-legend{display:inline-flex;align-items:center;gap:4px;font-size:11px;
+  color:var(--sub);margin-left:10px;user-select:none}
+.chart-legend i{width:9px;height:9px;border-radius:3px;display:inline-block}
+/* 跳题圆点：悬停放大 */
+.q-dots i{transition:transform .12s}
+.q-dots i:hover{transform:scale(1.3)}
+/* 骨架屏加载占位 */
+.skel-wrap{display:flex;flex-direction:column;gap:9px;padding:14px}
+.skel{height:13px;border-radius:7px;
+  background:linear-gradient(90deg,#eceff5 25%,#f7f9fc 40%,#eceff5 55%);
+  background-size:200% 100%;animation:skel 1.2s ease infinite}
+@keyframes skel{from{background-position:180% 0}to{background-position:-20% 0}}
+/* 设置页表单标签（原内联样式收敛为类） */
+.set-label{display:block;font-size:12px;color:var(--sub);margin-bottom:5px}
+/* 侧栏通用条目（报告周期等，与错题条目样式解耦） */
+.side-item{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--line);
+  border-radius:10px;padding:9px 10px;margin-bottom:8px;cursor:pointer}
+.side-item:hover{border-color:#c2cbe0}
+.side-item.on{border-color:var(--blue);box-shadow:0 0 0 2px rgba(47,107,255,.1)}
+.side-item .ic{width:26px;height:26px;border-radius:8px;background:var(--blue-bg);
+  color:var(--blue);display:flex;align-items:center;justify-content:center;flex:none;font-size:12px}
+.side-item .tx{font-size:12.5px}
+/* 窄窗口：统计卡 4 列 → 2 列 */
+@media (max-width:1100px){.stat-grid{grid-template-columns:repeat(2,1fr)}}
+/* 护眼主题补齐：解析/统计/聊天/笔记/任务等组件跟随底色 */
+body.theme-blue .review-item,body.theme-blue .stat,body.theme-blue .msg.bot,
+body.theme-blue .note-item,body.theme-blue .note-preview,body.theme-blue .task,
+body.theme-blue .paper-item,body.theme-blue .wrong-item,body.theme-blue .side-item,
+body.theme-blue .toast{background:#f4f9ff}
+body.theme-green .review-item,body.theme-green .stat,body.theme-green .msg.bot,
+body.theme-green .note-item,body.theme-green .note-preview,body.theme-green .task,
+body.theme-green .paper-item,body.theme-green .wrong-item,body.theme-green .side-item,
+body.theme-green .toast{background:#f3faf4}
+body.theme-red .review-item,body.theme-red .stat,body.theme-red .msg.bot,
+body.theme-red .note-item,body.theme-red .note-preview,body.theme-red .task,
+body.theme-red .paper-item,body.theme-red .wrong-item,body.theme-red .side-item,
+body.theme-red .toast{background:#fdf5f5}

@@ -264,19 +264,22 @@ function renderStartMain() {
 /* 今日推荐：到期错题复习 + 薄弱点特训（按本地作答正确率定位） */
 async function renderWeakCard() {
   const p = state.practice;
-  let due = [];
-  try { due = await api.wrong_due_list(200) || []; } catch (e) { /* 未同步错题时静默 */ }
+  let due = [], dueTotal = 0;
+  try {
+    due = await api.wrong_due_list(20) || [];
+    try { dueTotal = await api.wrong_due_count() || 0; } catch (e2) { dueTotal = due.length; }
+  } catch (e) { /* 未同步错题时静默 */ }
   let weak = [];
   try { weak = await api.weak_points(3) || []; } catch (e) { weak = []; }
   p.weak = weak;
-  if (!due.length && !weak.length) {
+  if (!dueTotal && !weak.length) {
     $("mainPane").innerHTML = `<div class="empty-state">
       <span class="big">📚</span>从左侧选择一个知识点开始练习<br>
       <span style="font-size:12px">支持按知识点专项练习，答完自动出解析、记录错题</span></div>`;
     return;
   }
-  const dueHtml = due.length
-    ? `<div class="weak-due"><span>🕐 错题复习 · <b>${due.length}</b> 题今天到期（艾宾浩斯安排）</span>
+  const dueHtml = dueTotal > 0
+    ? `<div class="weak-due"><span>🕐 错题复习 · 今天到期 <b>${dueTotal}</b> 题（艾宾浩斯安排）${dueTotal > due.length ? `，本批先复习 ${due.length} 题` : ""}</span>
        <button class="btn pri sm" data-act="goReviewDue">去复习</button></div>`
     : `<div class="weak-due ok"><span>✅ 今日到期错题已清完，复习节奏保持得不错</span></div>`;
   const RANKS = [
@@ -316,7 +319,8 @@ async function renderHistoryTab() {
     <span style="font-size:12px">可回看当时的题目、正确答案与解析</span></div>`;
   const box = $("histBox");
   if (!p.histLoaded) {
-    box.innerHTML = `<p class="muted" style="padding:10px">加载练习历史…</p>`;
+    box.innerHTML = `<div class="skel-wrap" style="padding:6px 2px">
+      <div class="skel"></div><div class="skel" style="width:82%"></div><div class="skel" style="width:64%"></div></div>`;
     try {
       p.history = await api.practice_history(100);
       p.histLoaded = true;
@@ -326,7 +330,9 @@ async function renderHistoryTab() {
     }
   }
   if (!p.history.length) {
-    box.innerHTML = `<p class="muted" style="padding:10px">还没有练习记录，先去做一组题吧</p>`;
+    box.innerHTML = `<div class="empty-state" style="padding:24px 10px">
+      <span class="big">🗂</span>还没有练习记录<br>
+      <button class="btn pri sm" data-act="go" data-v="practice" style="margin-top:8px">✏️ 去刷题</button></div>`;
     return;
   }
   box.innerHTML = p.history.map((h) => {
@@ -442,7 +448,7 @@ function renderSession() {
         : `<p class="muted">本题无选项，可直接在右侧询问小岸。</p>`}
       <div class="q-dots">
         ${s.questions.map((qq, i) => `<i class="${s.answers[qq.globalId] ? "answered" : ""} ${i === s.idx ? "cur" : ""}"
-          data-act="jump" data-v="${i}"></i>`).join("")}
+          data-act="jump" data-v="${i}" title="第 ${i + 1} 题"></i>`).join("")}
       </div>
       <div class="sess-foot">
         <button class="btn" data-act="nav" data-v="-1" ${s.idx === 0 ? "disabled" : ""}>上一题</button>
@@ -629,13 +635,14 @@ async function renderWrongDue() {
   if (!w.dueLoaded) {
     try { w.due = await api.wrong_due_list(200) || []; }
     catch (e) { toast("加载到期错题失败", errText(e), "err"); w.due = []; }
+    try { w.dueTotal = await api.wrong_due_count() || 0; } catch (e2) { w.dueTotal = w.due.length; }
     w.dueLoaded = true;
   }
   w.list = w.due;
   $("crumb").innerHTML = `错题本 / <b>今日到期复习</b>`;
   $("listPane").innerHTML = `
     <button class="btn pri" style="width:100%" data-act="wDueExit">✓ 完成复习，返回错题本</button>
-    <div class="pane-title" style="margin-top:10px">今日到期 ${w.due.length} 题</div>
+    <div class="pane-title" style="margin-top:10px">今日到期 ${w.dueTotal ?? w.due.length} 题${((w.dueTotal ?? 0) > w.due.length) ? `（先做前 ${w.due.length} 题）` : ""}</div>
     ${w.due.map(wrongItemHtml).join("") ||
       `<p class="muted" style="padding:6px">🎉 今日到期的错题都复习完了</p>`}`;
   if (!w.sel || !w.due.find((x) => x.id === w.sel.id)) w.sel = w.due[0] || null;
@@ -1048,13 +1055,16 @@ async function renderReport() {
   $("listPane").innerHTML = `
     <div class="pane-title">报告周期</div>
     ${[["week","本周"],["last_week","上周"],["month","本月"]].map(([k, v]) =>
-      `<div class="wrong-item ${r.period === k ? "on" : ""}" data-act="period" data-v="${k}">
-        <span class="ic" style="font-size:11px">${v.slice(0,1)}</span>
+      `<div class="side-item ${r.period === k ? "on" : ""}" data-act="period" data-v="${k}">
+        <span class="ic">${v.slice(0,1)}</span>
         <span class="tx">${v}报告</span></div>`).join("")}
     <button class="btn pri" style="width:100%;margin-top:12px" data-act="openShare">📤 分享报告</button>`;
 
   if (!r.data) {
-    $("mainPane").innerHTML = `<p class="muted" style="padding:20px">加载报告中…</p>`;
+    $("mainPane").innerHTML = `<div class="skel-wrap">
+      <div class="skel" style="width:52%;height:22px"></div>
+      <div class="skel" style="width:90%"></div><div class="skel" style="width:84%"></div>
+      <div class="skel" style="width:71%"></div></div>`;
     try { r.data = await api.report_data(r.period); }
     catch (e) { toast("加载报告失败", errText(e), "err"); return; }
   }
@@ -1070,23 +1080,28 @@ function renderReportMain() {
       <div class="stat"><div class="v blue">${d.questions}</div><div class="l">${esc(d.periodLabel)}刷题（道）</div></div>
       <div class="stat"><div class="v ${col(d.accuracy)}">${d.accuracy}%</div><div class="l">平均正确率</div></div>
       <div class="stat"><div class="v orange">${d.hours}h</div><div class="l">学习时长</div></div>
-      <div class="stat"><div class="v red">${d.streak}天</div><div class="l">连续打卡</div></div>
+      <div class="stat"><div class="v orange">${d.streak}天</div><div class="l">连续打卡</div></div>
     </div>
 
     <div class="card" style="margin-top:13px">
       <h3>📊 各模块正确率</h3>
       ${d.modules.length ? d.modules.map((m) => `
         <div class="rate-row"><span class="name">${esc(m.name)}</span>
-          <span class="track"><i style="width:${m.accuracy}%;background:var(--${col(m.accuracy) === "green" ? "green" : col(m.accuracy) === "red" ? "orange" : "blue"})"></i></span>
+          <span class="track"><i style="width:${m.accuracy}%;background:var(--${col(m.accuracy)})"></i></span>
           <span class="val">${m.accuracy}%</span></div>`).join("")
-        : `<p class="muted">暂无数据，完成练习后自动统计</p>`}
+        : `<p class="muted" style="margin-bottom:9px">暂无数据，完成练习后自动统计</p>
+          <button class="btn pri sm" data-act="go" data-v="practice">✏️ 去刷题</button>`}
     </div>
 
     <div class="card">
-      <h3>📉 近 8 周每周错题数</h3>
+      <div class="row"><h3 style="margin:0">📉 近 8 周每周错题数</h3><div style="flex:1"></div>
+        <span class="chart-legend"><i style="background:#fca5a5"></i>错题偏多</span>
+        <span class="chart-legend"><i style="background:#93c5fd"></i>好转中</span>
+        <span class="chart-legend"><i style="background:var(--green)"></i>保持得不错</span></div>
       <div class="trend" style="margin-top:14px">
         ${d.wrongTrend.map((w, i) => `<i style="height:${Math.max(3, w.value / maxTrend * 100)}%;
-          background:${i >= 5 ? "var(--green)" : i >= 3 ? "#93c5fd" : "#fca5a5"}">
+          background:${i >= 5 ? "var(--green)" : i >= 3 ? "#93c5fd" : "#fca5a5"}"
+          title="${esc(w.label)} · 错 ${w.value} 题">
           <span>${esc(w.label)}</span></i>`).join("")}
       </div>
     </div>
@@ -1143,18 +1158,18 @@ async function renderSettings() {
   <div style="max-width:660px;margin:0 auto">
     <div class="card">
       <h3>🤖 AI 模型</h3>
-      <div class="field" style="margin-bottom:12px"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">服务商</label>
+      <div class="field" style="margin-bottom:12px"><label class="set-label">服务商</label>
         <select class="field-input" id="setProvider">
           ${PROVIDERS.map((p) => `<option ${p[0] === m.provider ? "selected" : ""}>${p[0]}</option>`).join("")}
         </select></div>
-      <div class="field"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">API Base URL</label>
+      <div class="field"><label class="set-label">API Base URL</label>
         <input class="field-input" id="setBase" value="${esc(m.base_url)}"></div>
       <div class="row" style="margin:12px 0">
-        <div style="flex:1"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">API Key</label>
+        <div style="flex:1"><label class="set-label">API Key</label>
           <input class="field-input" id="setKey" type="password" value="${esc(m.api_key)}"></div>
-        <div style="width:170px"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">模型名</label>
+        <div style="width:170px"><label class="set-label">模型名</label>
           <input class="field-input" id="setModelName" value="${esc(m.model)}"></div></div>
-      <div class="field"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">
+      <div class="field"><label class="set-label">
         创造性：${m.temperature}</label>
         <input type="range" id="setTemp" min="0" max="100" value="${Math.round(m.temperature * 100)}" style="width:100%"></div>
       <div class="row">
@@ -1183,14 +1198,14 @@ async function renderSettings() {
     <div class="card">
       <h3>🎯 考试与督学</h3>
       <div class="row" style="margin-bottom:11px">
-        <div style="flex:1"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">考试名称</label>
+        <div style="flex:1"><label class="set-label">考试名称</label>
           <input class="field-input" id="setExamName" value="${esc(g.exam_name)}"></div>
-        <div style="width:170px"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">考试日期</label>
+        <div style="width:170px"><label class="set-label">考试日期</label>
           <input class="field-input" id="setExamDate" type="date" value="${esc(g.exam_date)}"></div></div>
       <div class="row" style="margin-bottom:11px">
-        <div style="flex:1"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">每日题量目标</label>
+        <div style="flex:1"><label class="set-label">每日题量目标</label>
           <input class="field-input" id="setTarget" type="number" value="${g.daily_target}"></div>
-        <div style="width:170px"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">提醒时间</label>
+        <div style="width:170px"><label class="set-label">提醒时间</label>
           <input class="field-input" id="setRemind" type="time" value="${esc(g.reminder_time)}"></div></div>
       <label style="font-size:12.5px"><input type="checkbox" id="setStrict" ${g.strict_mode ? "checked" : ""}>
         严格模式（到点未完成，小岸主动提醒谈话）</label>
@@ -1219,12 +1234,12 @@ async function renderSettings() {
         <span class="muted" style="font-size:11.5px;align-self:center">仅本机偏好，不影响学习数据</span>
       </div>
       <div class="row" style="align-items:flex-end">
-        <div style="flex:1;min-width:0"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">字体</label>
+        <div style="flex:1;min-width:0"><label class="set-label">字体</label>
           <select class="field-input" id="setFont">
             ${FONT_CHOICES.map((f) => `<option value="${f[0]}" ${fontCur === f[0] ? "selected" : ""}
               style="font-family:${f[2]}">${f[1]}</option>`).join("")}
           </select></div>
-        <div style="width:110px"><label style="display:block;font-size:12px;color:var(--sub);margin-bottom:5px">字号</label>
+        <div style="width:110px"><label class="set-label">字号</label>
           <select class="field-input" id="setFontScale">
             ${FONT_SCALES.map(([v, t]) => `<option value="${v}" ${scaleCur === v ? "selected" : ""}>${t}</option>`).join("")}
           </select></div>
@@ -1401,7 +1416,7 @@ function renderChat() {
     <div id="chatQuicks" style="padding:0 13px"></div>
     <div class="chat-input">
       <div class="box">
-        <input id="chatText" placeholder="输入消息，回车发送…">
+        <textarea id="chatText" rows="1" placeholder="输入消息，回车发送，Shift+回车换行…"></textarea>
         <span data-act="chatSend" style="cursor:pointer">➤</span></div>
     </div>`;
   renderQuicks();
@@ -1515,6 +1530,7 @@ async function sendChat(text) {
   const placeholder = { role: "assistant", content: "", id: "pending" };
   state.chat.msgs.push(placeholder);
   renderChat();
+  const tb = $("chatText"); if (tb) tb.focus();
   try {
     const res = await api.chat_send({ text, ctxType: ctx.type, ctxData: ctx.data });
     placeholder.id = res.id;
@@ -1523,6 +1539,7 @@ async function sendChat(text) {
     state.chat.msgs.pop();
     toast("发送失败", errText(e), "err");
     renderChat();
+    const tb2 = $("chatText"); if (tb2) tb2.focus();
   }
   state.chat.busy = false;
 }
@@ -2252,6 +2269,11 @@ document.addEventListener("click", async (e) => {
 
 /* 输入事件 */
 document.addEventListener("input", (e) => {
+  if (e.target.id === "chatText") {
+    e.target.style.height = "auto";
+    e.target.style.height = Math.min(e.target.scrollHeight, 110) + "px";
+    return;
+  }
   const name = e.target.dataset.input;
   if (name === "treeSearch") state.practice.treeQuery = e.target.value, renderTreeBox();
   if (name === "wrongSearch") {
@@ -2291,10 +2313,25 @@ document.addEventListener("change", (e) => {
   }
 });
 
-/* 回车发送对话 */
+/* 回车发送对话（textarea：Enter 发送，Shift+Enter 换行）+ ESC 关闭浮层 */
 document.addEventListener("keydown", (e) => {
-  if (e.target.id === "chatText" && e.key === "Enter") {
+  if (e.target.id === "chatText" && e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
     sendChat(e.target.value);
+    return;
+  }
+  if (e.key === "Escape") {
+    const imgMask = document.querySelector(".img-mask");
+    if (imgMask) { imgMask.classList.remove("on"); setTimeout(() => imgMask.remove(), 180); return; }
+    for (const mid of ["shareMask", "connectMask"]) {
+      const mm = $(mid);
+      if (mm && mm.classList.contains("on")) { mm.classList.remove("on"); return; }
+    }
+    const chat = $("floatChat");
+    if (chat && chat.classList.contains("on")) {
+      chat.classList.remove("on");
+      $("floatBall").style.display = "flex";
+    }
   }
 });
 

@@ -443,6 +443,13 @@
       "ORDER BY next_review_at ASC LIMIT ?", [DB.nowMs(), limit]).map(wrongRow);
   }
 
+  function wrong_due_count() {
+    const rows = DB.query(
+      "SELECT COUNT(*) c FROM wrong_questions WHERE status='active' " +
+      "AND next_review_at IS NOT NULL AND next_review_at<=?", [DB.nowMs()]);
+    return (rows && rows[0] && parseInt(rows[0].c, 10)) || 0;
+  }
+
   function wrong_modules() {
     return DB.query(
       "SELECT module_name, COUNT(*) c, COALESCE(ROUND(AVG(mastery)),0) am " +
@@ -971,7 +978,7 @@
     practice_history: practice_history,
     practice_history_detail: practice_history_detail,
     wrong_list: wrong_list, wrong_modules: wrong_modules,
-    wrong_due_list: wrong_due_list, weak_points: weak_points,
+    wrong_due_list: wrong_due_list, wrong_due_count: wrong_due_count, weak_points: weak_points,
     wrong_record_answer: wrong_record_answer, wrong_action: wrong_action,
     wrong_sync: wrong_sync,
     notes_list: notes_list, notes_save: notes_save,

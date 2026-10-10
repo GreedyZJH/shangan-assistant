@@ -45,3 +45,10 @@ body { font-size: 14px; -webkit-tap-highlight-color: transparent; }
   .float-ball { right: 14px; bottom: 76px; width: 50px; height: 50px; }
   .float-chat { right: 8px; left: 8px; bottom: 76px; width: auto; height: 70vh; }
 }
+
+/* ===== V1.2.1 设计走查补丁（v4） ===== */
+.chat-input textarea { font-size: 13.5px; }
+@media (max-width: 760px) {
+  /* 聊天窗 70vh 高度下确保输入框可见 */
+  .float-chat { max-height: calc(100vh - 96px); }
+}

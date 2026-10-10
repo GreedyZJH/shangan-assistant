@@ -437,6 +437,15 @@ def wrong_due_list(limit: int = 50) -> list[dict]:
     return [_wrong_row(r) for r in rows]
 
 
+def wrong_due_count() -> int:
+    """今日到期错题总数（不受 limit 截断影响，用于前端真实展示）。"""
+    rows = storage.query(
+        "SELECT COUNT(*) c FROM wrong_questions WHERE status='active' "
+        "AND next_review_at IS NOT NULL AND next_review_at<=?",
+        (storage.now_ms(),))
+    return int(rows[0]["c"] or 0) if rows else 0
+
+
 def wrong_modules() -> list[dict]:
     rows = storage.query(
         "SELECT module_name, COUNT(*) c, COALESCE(ROUND(AVG(mastery)),0) am "
