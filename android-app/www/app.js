@@ -118,11 +118,16 @@ function updateTop() {
   const done = Math.min(target, c.todayQuestions);
   const reached = done >= target;
   $("topRingText").textContent = `${done}/${target}`;
+  $("topRing").title = reached
+    ? `今日已达标：${done}/${target} 题`
+    : `今日已刷 ${done}/${target} 题，还差 ${target - done} 题达标`;
   $("topRing").classList.toggle("ok", reached);
   $("topRing").style.background = reached
     ? `conic-gradient(var(--green) 100%, #eef0f5 0)`
     : `conic-gradient(var(--blue) ${(done / target) * 100}%, #eef0f5 0)`;
   $("topFlame").textContent = c.streak >= 7 ? `✨🔥${c.streak}天` : `🔥${c.streak}`;
+  $("topFlame").title = c.streak > 0
+    ? `已连续打卡 ${c.streak} 天，继续保持！` : "今天还没打卡，刷一组题点亮火焰";
 }
 
 /* ------------------------------------------------------- 路由 ------------ */
@@ -243,6 +248,21 @@ function findNode(nodes, id) {
 }
 
 function renderStartMain() {
+  /* 今日总览（异步加载，不阻塞主渲染） */
+  setTimeout(async () => {
+    const box = $("todayOverview");
+    if (!box) return;
+    try {
+      const ov = await api.today_overview();
+      box.innerHTML = `
+        <div class="today-strip">
+          <span class="today-chip" data-act="go" data-v="plan">📋 任务 ${ov.tasksDone}/${ov.tasksTotal}</span>
+          <span class="today-chip" data-act="go" data-v="wrong">🕐 到期复习 ${ov.dueReview}</span>
+          <span class="today-chip" data-act="go" data-v="practice">✏️ 今日已刷 ${ov.todayQuestions}/${ov.target}</span>
+          ${ov.remainTarget > 0 ? `<span class="today-chip accent" data-act="go" data-v="practice">还差 ${ov.remainTarget} 题达标</span>` : `<span class="today-chip ok">✓ 今日已达标</span>`}
+        </div>`;
+    } catch (e) { /* 静默 */ }
+  }, 0);
   const p = state.practice;
   if (!p.selNode) { renderWeakCard(); return; }
   const n = p.selNode;
@@ -298,6 +318,7 @@ async function renderWeakCard() {
       </div>`).join("")}`
     : `<p class="muted" style="margin-top:12px;font-size:12px">每个考点作答满 4 次后，这里会自动定位你的薄弱知识点</p>`;
   $("mainPane").innerHTML = `
+    <div id="todayOverview"></div>
     <div class="card start-card">
       <div class="big-title">今日推荐</div>
       <p class="muted" style="margin-bottom:4px">系统按你的作答数据选最快提分的题</p>
@@ -357,6 +378,7 @@ async function renderPaperTab() {
     <div class="mini-seg">
       <span data-act="ptab" data-v="tree">知识点</span><span class="on">整卷</span><span data-act="ptab" data-v="history">历史</span>
     </div>
+    <button class="btn pri" style="width:100%;margin-top:10px" data-act="mockStart">⏱ 开始模拟考</button>
     <select class="field-input" data-input="labelSel" id="labelSel"></select>
     <div id="paperBox" style="margin-top:10px"></div>
     <div class="row" style="justify-content:center;margin-top:6px">
@@ -394,7 +416,9 @@ function renderPaperBox() {
     <div class="paper-item" data-act="startPaper" data-id="${pa.id}">
       <b>${esc(pa.name)}</b>
       <div class="meta"><span>${esc(pa.date || "")}</span>
-        <span>难度 ${(pa.difficulty ?? "-")}</span><span>${pa.exerciseCount || 0} 人做过</span></div>
+        <span>难度 ${(pa.difficulty ?? "-")}</span>
+        ${pa.questionCount ? `<span>${pa.questionCount} 题 · 约 ${Math.round(pa.questionCount * 55 / 60)} 分钟</span>` : ""}
+        <span>${pa.exerciseCount || 0} 人做过</span></div>
     </div>`).join("") || `<p class="muted" style="padding:8px">本页无试卷</p>`;
 }
 
@@ -469,6 +493,15 @@ async function doSubmit() {
     const ok = await askConfirm("还有题目未作答",
       `第 ${unIdx.map((i) => i + 1).join("、")} 题未作答，未作答将计为错误，确定交卷？`, "仍然交卷");
     if (!ok) { s.idx = unIdx[0]; renderSession(); return; }
+  }
+  /* 多选题漏选提醒：标记为多选但只选了 1 个选项的题 */
+  const singlePickMulti = s.questions.map((q, i) => ({ q, i }))
+    .filter((x) => s.multi.has(x.q.globalId) && (s.answers[x.q.globalId] || []).length === 1)
+    .map((x) => x.i);
+  if (singlePickMulti.length) {
+    const ok2 = await askConfirm("可能是多选题漏选",
+      `第 ${singlePickMulti.map((i) => i + 1).join("、")} 题是多选题，但你只选了 1 个选项，可能漏选。仍要交卷？`, "仍然交卷");
+    if (!ok2) { s.idx = singlePickMulti[0]; renderSession(); return; }
   }
   const btn = $("submitBtn");
   btn.disabled = true; btn.textContent = "交卷中…";
@@ -575,7 +608,8 @@ async function renderWrong() {
   if (!w.loaded) {
     try {
       w.modules = await api.wrong_modules();
-      w.list = await api.wrong_list(w.query, w.tab, w.module, w.sort);
+      w.list = await api.wrong_list(w.query, w.tab, w.module, w.sort,
+        w.minWrong || 0, w.sort === "star" ? 1 : 0);
       w.loaded = true;
     } catch (e) { toast("加载错题失败", errText(e), "err"); }
   }
@@ -588,6 +622,14 @@ async function renderWrong() {
     <div class="mini-seg" style="margin-top:6px">
       <span class="${w.sort !== "mastery" ? "on" : ""}" data-act="wsort" data-v="due">按复习时间</span>
       <span class="${w.sort === "mastery" ? "on" : ""}" data-act="wsort" data-v="mastery">按掌握度</span>
+      <span class="${w.sort === "star" ? "on" : ""}" data-act="wsort" data-v="star">★ 星标</span>
+    </div>
+    <div class="row" style="margin-top:6px;gap:6px">
+      <select class="field-input" style="flex:1;font-size:12px" data-input="wMinWrong" id="wMinWrong">
+        <option value="0" ${!w.minWrong ? "selected" : ""}>全部错误次数</option>
+        <option value="2" ${w.minWrong === 2 ? "selected" : ""}>错 ≥2 次</option>
+        <option value="3" ${w.minWrong === 3 ? "selected" : ""}>错 ≥3 次</option>
+      </select>
     </div>
     <div class="pane-title">模块筛选</div>
     <div class="wrong-item ${!w.module ? "on" : ""}" data-act="wmod" data-v="">
@@ -622,6 +664,8 @@ function wrongItemHtml(it) {
   }
   return `<div class="wrong-item ${dueCls} ${w.sel && w.sel.id === it.id ? "on" : ""}" data-act="wsel" data-id="${it.id}"
     ${dueCls ? `title="${dueCls === "due-over" ? "已过复习期，尽快安排" : "今天到期复习"}"` : ""}>
+    <span class="star-btn ${it.starred ? "on" : ""}" data-act="wStar" data-id="${it.id}"
+      title="${it.starred ? "取消星标" : "星标：标记为最易再错"}" >${it.starred ? "★" : "☆"}</span>
     <span class="mastery-ring" style="background:conic-gradient(${color} ${pct}%,#eef0f5 0)"
       title="${it.masteryEff != null && it.masteryEff !== it.mastery ? `复习时 ${it.mastery}%，当前 ${it.masteryEff}%` : `掌握度 ${pct}%`}">
       <i>${pct}%</i></span>
@@ -630,21 +674,28 @@ function wrongItemHtml(it) {
 }
 
 /* 今日到期复习模式：只显示艾宾浩斯到期的错题，逐题过完为止 */
+/* 错题筛选状态（模块/最少错次） */
+state.wrong.fModule = state.wrong.fModule || "";
+state.wrong.fMinWrong = state.wrong.fMinWrong || 0;
+
 async function renderWrongDue() {
   const w = state.wrong;
   if (!w.dueLoaded) {
-    try { w.due = await api.wrong_due_list(200) || []; }
+    try { w.due = await api.wrong_due_list(20, w.dueOffset || 0) || []; }
     catch (e) { toast("加载到期错题失败", errText(e), "err"); w.due = []; }
     try { w.dueTotal = await api.wrong_due_count() || 0; } catch (e2) { w.dueTotal = w.due.length; }
     w.dueLoaded = true;
   }
   w.list = w.due;
   $("crumb").innerHTML = `错题本 / <b>今日到期复习</b>`;
+  const doneN = (w.dueDone || 0);
   $("listPane").innerHTML = `
     <button class="btn pri" style="width:100%" data-act="wDueExit">✓ 完成复习，返回错题本</button>
-    <div class="pane-title" style="margin-top:10px">今日到期 ${w.dueTotal ?? w.due.length} 题${((w.dueTotal ?? 0) > w.due.length) ? `（先做前 ${w.due.length} 题）` : ""}</div>
+    <div class="pane-title" style="margin-top:10px">今日到期 ${w.dueTotal ?? w.due.length} 题 · 本批 ${w.due.length} 题${doneN ? ` · 已完成 ${doneN} 题` : ""}</div>
+    <div class="progress" style="margin:8px 0"><i style="width:${w.due.length ? Math.round((w.dueIdx || 0) / w.due.length * 100) : 100}%"></i></div>
     ${w.due.map(wrongItemHtml).join("") ||
-      `<p class="muted" style="padding:6px">🎉 今日到期的错题都复习完了</p>`}`;
+      `<p class="muted" style="padding:6px">🎉 本批复习完成</p>
+       <button class="btn pri" style="width:100%" data-act="wDueNextBatch">再来一批（20 题）</button>`}`;
   if (!w.sel || !w.due.find((x) => x.id === w.sel.id)) w.sel = w.due[0] || null;
   renderWrongMain();
 }
@@ -723,6 +774,8 @@ function renderWrongMain() {
         <button class="btn ghost" data-act="wNext" ${idx < 0 || idx >= w.list.length - 1 ? "disabled" : ""}>下一题</button>
         <button class="btn ghost" data-act="wAsk">AI 再讲一遍</button>
         <div style="flex:1"></div>
+        <button class="btn ghost" data-act="wStar" data-id="${it.id}"
+          title="${it.starred ? "取消星标" : "星标"}">${it.starred ? "★ 已星标" : "☆ 星标"}</button>
         <button class="btn ghost" data-act="wSync">☁ 云端同步</button>
         ${masteredView
           ? `<button class="btn" data-act="wReactivate" data-id="${it.id}">重新加入错题</button>`
@@ -896,6 +949,8 @@ async function renderNotes() {
         : `<textarea class="note-edit field-input" data-input="noteField" id="noteBody"
             placeholder="正文（支持 Markdown）">${esc(t.body)}</textarea>`}
       <div class="row" style="margin-top:12px">
+        <span class="muted" style="font-size:11px;align-self:center" id="noteMeta">
+          共 ${(t.body || "").length} 字${t.updated_at ? " · 更新于 " + fmtTs(t.updated_at) : ""}</span>
         <button class="btn pri" data-act="noteSave" data-id="${t.id}">保存</button>
         <button class="btn ghost" data-act="noteAsk">让 AI 润色/出检测题</button>
         <button class="btn ghost" data-act="noteExportPdf" data-id="${t.id}">📄 导出 PDF</button>
@@ -1084,6 +1139,17 @@ function renderReportMain() {
     </div>
 
     <div class="card" style="margin-top:13px">
+      <h3>🔁 复习效果</h3>
+      ${d.review && d.review.total ? `
+        <div class="row" style="margin-top:4px">
+          <div class="stat" style="flex:1"><div class="v blue">${d.review.total}</div><div class="l">复习作答</div></div>
+          <div class="stat" style="flex:1"><div class="v ${col(d.review.accuracy)}">${d.review.accuracy}%</div><div class="l">复习正确率</div></div>
+          <div class="stat" style="flex:1"><div class="v green">${d.review.masteryAvg}%</div><div class="l">平均掌握度</div></div>
+        </div>`
+      : `<p class="muted">本周期还没有复习记录，去错题本把到期的题过一遍吧</p>`}
+    </div>
+
+    <div class="card" style="margin-top:13px">
       <h3>📊 各模块正确率</h3>
       ${d.modules.length ? d.modules.map((m) => `
         <div class="rate-row"><span class="name">${esc(m.name)}</span>
@@ -1213,7 +1279,9 @@ async function renderSettings() {
     </div>
 
     <div class="card">
-      <h3>🎨 护眼背景</h3>
+      <div class="row" style="margin-bottom:4px"><h3 style="margin:0">🎨 视觉偏好</h3><div style="flex:1"></div>
+        <span class="muted" style="font-size:11px;align-self:center">底色 + 字体字号，一站配好</span></div>
+      <p class="muted" style="margin-bottom:10px;font-size:12px">做题面板的底色，选一个看着舒服的，点击立即生效。</p>
       <p class="muted" style="margin-bottom:10px">做题面板的底色，选一个看着舒服的，点击立即生效。</p>
       <div class="bg-opts">
         <div class="bg-opt ${((state.init.general.bg_mode) || "default") === "default" ? "on" : ""}"
@@ -1899,6 +1967,11 @@ document.addEventListener("click", async (e) => {
       w.dueMode = true; w.dueLoaded = false; w.sel = null; w.quiz = {};
       go("wrong"); break;
     }
+    case "wDueNextBatch":
+      state.wrong.dueOffset = (state.wrong.dueOffset || 0) + (state.wrong.due ? state.wrong.due.length : 20);
+      state.wrong.dueDone = (state.wrong.dueDone || 0) + (state.wrong.due ? state.wrong.due.length : 0);
+      state.wrong.dueLoaded = false; state.wrong.sel = null;
+      renderWrongDue(); break;
     case "wDueExit": {
       const w = state.wrong;
       w.dueMode = false; w.dueLoaded = false; w.sel = null; w.loaded = false;
@@ -1956,6 +2029,28 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "wAsk": openChat(); break;
+    case "wStar":
+      try {
+        const r = await api.wrong_action(parseInt(id, 10), "star");
+        const itm = (state.wrong.list || []).find((x) => x.id == id) ||
+                    (state.wrong.due || []).find((x) => x.id == id);
+        if (itm) itm.starred = r.starred;
+        if (state.wrong.sel && state.wrong.sel.id == id) state.wrong.sel.starred = r.starred;
+        render();
+        toast(r.starred ? "已加星标" : "已取消星标", "", "ok", 1600);
+      } catch (e) { toast("操作失败", errText(e), "err"); }
+      break;
+    case "mockStart":
+      try {
+        const ok = await askConfirm("开始模拟考",
+          "将取最新一套整卷限时作答（约 120 分钟），期间计时严格，确认现在开始？", "开始模拟考");
+        if (!ok) break;
+        const data = await api.practice_start_mock();
+        state.practice.review = null;
+        beginSession(data);
+        toast("模拟考开始", "计时已开始，请按考试节奏作答", "info", 3000);
+      } catch (e) { toast("无法开始模拟考", errText(e), "err"); }
+      break;
     case "wSync": await syncWrongFromCloud(); break;
 
     /* 笔记 */
@@ -2276,6 +2371,10 @@ document.addEventListener("input", (e) => {
   }
   const name = e.target.dataset.input;
   if (name === "treeSearch") state.practice.treeQuery = e.target.value, renderTreeBox();
+  if (name === "wMinWrong") {
+    state.wrong.minWrong = parseInt(e.target.value, 10) || 0;
+    state.wrong.loaded = false; renderWrong(); return;
+  }
   if (name === "wrongSearch") {
     state.wrong.query = e.target.value;
     clearTimeout(state.wrong._t);
@@ -2358,6 +2457,16 @@ $("shareMask").addEventListener("click", (e) => {
   if (e.target.id === "shareMask") $("shareMask").classList.remove("on");
 });
 
+$("fontBtn").addEventListener("click", () => {
+  const order = ["0.9", "1", "1.1", "1.25"];
+  const cur = localStorage.getItem("saFontScale") || "1";
+  const nxt = order[(order.indexOf(cur) + 1) % order.length];
+  localStorage.setItem("saFontScale", nxt);
+  applyFontPrefs();
+  const label = { "0.9": "小", "1": "标准", "1.1": "大", "1.25": "特大" }[nxt];
+  toast("字号已切换", `当前：${label}（点 Aa 可继续切换，更多字体在设置页）`, "ok", 1800);
+});
+
 $("bellBtn").addEventListener("click", async () => {
   const g = state.init.general, c = state.init.counts;
   const target = g.daily_target || 60;
@@ -2370,6 +2479,14 @@ $("bellBtn").addEventListener("click", async () => {
   toast("今日学习概况",
     `已刷题 ${c.todayQuestions}/${target} 道${taskPart}；提醒时间 ${g.reminder_time || "未设置"}` +
     (g.strict_mode ? "（严格模式，到点没完成小岸会找你谈话）" : "（温和模式）"), "reminder", 7000);
+  /* 周报：本周 vs 上周对比（异步，不影响主提示） */
+  try {
+    const wk = await api.report_weekly();
+    const trend = wk.deltaAccuracy >= 0 ? `正确率 +${wk.deltaAccuracy}%` : `正确率 ${wk.deltaAccuracy}%`;
+    toast("📅 本周学习周报（" + wk.label + "）",
+      `刷题 ${wk.this.questions} 道（上周 ${wk.prev.questions}）· ${trend} · 复习 ${wk.this.reviewCount} 题 · 连续打卡 ${wk.streak} 天`,
+      "info", 9000);
+  } catch (e) { /* 周报失败静默 */ }
 });
 
 /* #####################################################################

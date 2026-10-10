@@ -128,6 +128,62 @@
     return Object.assign({}, data, { sessionId: sid, module: "" });
   }
 
+  async function practice_start_mock() {
+    /* 模拟考：取最新一套整卷进入限时作答 */
+    var papers = await Fenbi.listPapers("xingce", 0, 0, 1, "");
+    var items = papers.list || papers.papers || [];
+    if (!items.length) throw err("未找到可用整卷，请先在「整卷」页同步试卷。");
+    var pid = items[0].id || items[0].paperId;
+    var data = await Fenbi.startPaper("xingce", pid);
+    var sid = DB.createSession("mock", pid, data.name, "xingce",
+      data.key, data.questions.length);
+    var total = data.questions.length || 130;
+    var limitSec = Math.max(60 * 30, Math.round(120 * 60 * total / 130));
+    return Object.assign({}, data, { sessionId: sid, module: "", mock: true, limitSec: limitSec });
+  }
+
+  function _dayStart(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
+
+  function today_overview() {
+    var today = DB.todayStr();
+    var dayStart = _dayStart(new Date());
+    var general = DB.getSetting("general");
+    var due = wrong_due_count();
+    var todayQ = DB.queryOne(
+      "SELECT COUNT(*) c FROM question_results WHERE created_at>=? AND source='practice'", [dayStart]).c;
+    var reviewQ = DB.queryOne(
+      "SELECT COUNT(*) c FROM question_results WHERE created_at>=? AND source='review'", [dayStart]).c;
+    var tasksTotal = DB.queryOne("SELECT COUNT(*) c FROM tasks WHERE date=?", [today]).c;
+    var tasksDone = DB.queryOne("SELECT COUNT(*) c FROM tasks WHERE date=? AND status='done'", [today]).c;
+    var target = parseInt(general.daily_target, 10) || 60;
+    return {
+      dueReview: due, todayQuestions: todayQ, todayReview: reviewQ,
+      tasksTotal: tasksTotal, tasksDone: tasksDone, target: target,
+      remainTarget: Math.max(0, target - todayQ),
+    };
+  }
+
+  function report_weekly() {
+    var today = new Date();
+    var thisStart = _dayStart(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6));
+    var end = _dayStart(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1));
+    var prevStart = _dayStart(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 13));
+    function agg(s0, s1) {
+      var r = DB.queryOne(
+        "SELECT COUNT(*) total, COALESCE(SUM(correct),0) correct FROM question_results WHERE created_at>=? AND created_at<?", [s0, s1]);
+      var rev = DB.queryOne(
+        "SELECT COUNT(*) c FROM question_results WHERE source='review' AND created_at>=? AND created_at<?", [s0, s1]).c;
+      return { questions: r.total, accuracy: r.total ? Math.round(r.correct * 100 / r.total) : 0, reviewCount: rev };
+    }
+    var th = agg(thisStart, end), pv = agg(prevStart, thisStart);
+    var fmt = function (d) { return (d.getMonth() + 1) + "/" + d.getDate(); };
+    return { this: th, prev: pv,
+      deltaQuestions: th.questions - pv.questions,
+      deltaAccuracy: th.accuracy - pv.accuracy,
+      streak: streak(),
+      label: fmt(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)) + " - " + fmt(today) };
+  }
+
   async function practice_similar(payload) {
     payload = payload || {};
     var limit = Math.max(1, Math.min(10, parseInt(payload.limit, 10) || 2));
@@ -409,14 +465,17 @@
     catch (e) { d.options = []; }
     d.nextReviewLabel = msToDateLabel(d.next_review_at);
     d.masteryEff = masteryEff(d);
+    d.starred = parseInt(d.starred, 10) || 0;
     delete d.options_json;
     return d;
   }
 
-  function wrong_list(query, status, module, sort) {
+  function wrong_list(query, status, module, sort, minWrong, starred) {
     var sql = "SELECT * FROM wrong_questions WHERE status=?";
     var params = [status || "active"];
     if (module) { sql += " AND module_name=?"; params.push(module); }
+    if (minWrong) { sql += " AND wrong_count>=?"; params.push(parseInt(minWrong, 10)); }
+    if (starred) { sql += " AND starred=1"; }
     if (query) {
       sql += " AND (content_html LIKE ? OR keypoint LIKE ?)";
       params.push("%" + query + "%", "%" + query + "%");
@@ -427,6 +486,11 @@
         return (a.masteryEff - b.masteryEff) ||
           ((a.next_review_at || 0) - (b.next_review_at || 0)) || (a.id - b.id);
       });
+    } else if (sort === "star") {
+      out.sort(function (a, b) {
+        return ((b.starred || 0) - (a.starred || 0)) ||
+          ((a.next_review_at || 0) - (b.next_review_at || 0)) || (a.id - b.id);
+      });
     } else {
       out.sort(function (a, b) {
         return ((a.next_review_at || 0) - (b.next_review_at || 0)) || (a.id - b.id);
@@ -435,12 +499,13 @@
     return out;
   }
 
-  function wrong_due_list(limit) {
+  function wrong_due_list(limit, offset) {
     limit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
+    offset = Math.max(0, parseInt(offset, 10) || 0);
     return DB.query(
       "SELECT * FROM wrong_questions WHERE status='active' " +
       "AND next_review_at IS NOT NULL AND next_review_at<=? " +
-      "ORDER BY next_review_at ASC LIMIT ?", [DB.nowMs(), limit]).map(wrongRow);
+      "ORDER BY next_review_at ASC LIMIT ? OFFSET ?", [DB.nowMs(), limit, offset]).map(wrongRow);
   }
 
   function wrong_due_count() {
@@ -499,6 +564,7 @@
       DB.execute(
         "UPDATE wrong_questions SET mastery=?,last_review_at=?,next_review_at=? WHERE id=?",
         [mastery, t, nxt, row.id]);
+      DB.addQuestionResult(0, row.global_id, row.module_name || "", row.keypoint || "", true, "review");
       return { mastery: mastery, nextReviewLabel: msToDateLabel(nxt) };
     }
     if (action === "fail") {
@@ -508,6 +574,7 @@
       DB.execute(
         "UPDATE wrong_questions SET mastery=?,last_review_at=?,next_review_at=? WHERE id=?",
         [m2, t, nxt2, row.id]);
+      DB.addQuestionResult(0, row.global_id, row.module_name || "", row.keypoint || "", false, "review");
       return { mastery: m2, nextReviewLabel: msToDateLabel(nxt2) };
     }
     if (action === "master") {
@@ -521,6 +588,11 @@
         "UPDATE wrong_questions SET status='active',next_review_at=? WHERE id=?",
         [t + 86400 * 1000, row.id]);
       return { status: "active" };
+    }
+    if (action === "star") {
+      var newStar = (parseInt(row.starred, 10) || 0) ? 0 : 1;
+      DB.execute("UPDATE wrong_questions SET starred=? WHERE id=?", [newStar, row.id]);
+      return { starred: newStar };
     }
     throw err("未知操作：" + action);
   }
@@ -973,6 +1045,7 @@
     fenbi_papers: fenbi_papers,
     practice_start_keypoint: practice_start_keypoint,
     practice_start_paper: practice_start_paper,
+    practice_start_mock: practice_start_mock,
     practice_similar: practice_similar,
     practice_submit: practice_submit,
     practice_history: practice_history,
@@ -981,6 +1054,7 @@
     wrong_due_list: wrong_due_list, wrong_due_count: wrong_due_count, weak_points: weak_points,
     wrong_record_answer: wrong_record_answer, wrong_action: wrong_action,
     wrong_sync: wrong_sync,
+    today_overview: today_overview, report_weekly: report_weekly,
     notes_list: notes_list, notes_save: notes_save,
     notes_delete: notes_delete, notes_export_pdf: notes_export_pdf,
     plan_overview: plan_overview,

@@ -1,12 +1,12 @@
-﻿/* 本地 SQLite 数据层（sql.js），与桌面版 backend/storage.py 同构。
+/* 本地 SQLite 数据层（sql.js），与桌面版 backend/storage.py 同构。
  * 数据持久化到应用私有目录 fenbi_app.db；写操作后自动防抖保存。 */
 (function () {
   "use strict";
 
   const SCHEMA = "CREATE TABLE IF NOT EXISTS kv_settings(k TEXT PRIMARY KEY, v TEXT);\n" +
 "CREATE TABLE IF NOT EXISTS practice_sessions(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at INTEGER, finished_at INTEGER,kind TEXT, source_id TEXT, source_name TEXT, prefix TEXT, ex_key TEXT,total_count INTEGER DEFAULT 0, correct_count INTEGER DEFAULT 0,duration_sec INTEGER DEFAULT 0);\n" +
-"CREATE TABLE IF NOT EXISTS question_results(id INTEGER PRIMARY KEY AUTOINCREMENT,session_id INTEGER, created_at INTEGER, global_id TEXT,module_name TEXT, keypoint TEXT, correct INTEGER);\n" +
-"CREATE TABLE IF NOT EXISTS wrong_questions(id INTEGER PRIMARY KEY AUTOINCREMENT,global_id TEXT UNIQUE, question_id TEXT, prefix TEXT,module_name TEXT, keypoint TEXT, content_html TEXT, options_json TEXT,material_html TEXT, my_answer TEXT, correct_answer TEXT,analysis TEXT, source TEXT,wrong_count INTEGER DEFAULT 1, mastery INTEGER DEFAULT 20,status TEXT DEFAULT 'active',created_at INTEGER, last_review_at INTEGER, next_review_at INTEGER);\n" +
+"CREATE TABLE IF NOT EXISTS question_results(id INTEGER PRIMARY KEY AUTOINCREMENT,session_id INTEGER, created_at INTEGER, global_id TEXT,module_name TEXT, keypoint TEXT, correct INTEGER, source TEXT DEFAULT 'practice');\n" +
+"CREATE TABLE IF NOT EXISTS wrong_questions(id INTEGER PRIMARY KEY AUTOINCREMENT,global_id TEXT UNIQUE, question_id TEXT, prefix TEXT,module_name TEXT, keypoint TEXT, content_html TEXT, options_json TEXT,material_html TEXT, my_answer TEXT, correct_answer TEXT,analysis TEXT, source TEXT,wrong_count INTEGER DEFAULT 1, mastery INTEGER DEFAULT 20,status TEXT DEFAULT 'active',created_at INTEGER, last_review_at INTEGER, next_review_at INTEGER, starred INTEGER DEFAULT 0);\n" +
 "CREATE TABLE IF NOT EXISTS notes(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT, body TEXT, tags TEXT, linked_global TEXT,created_at INTEGER, updated_at INTEGER);\n" +
 "CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,date TEXT, title TEXT, detail TEXT, duration_min INTEGER,required INTEGER DEFAULT 0, source TEXT DEFAULT 'manual',status TEXT DEFAULT 'todo', created_at INTEGER, finished_at INTEGER);\n" +
 "CREATE TABLE IF NOT EXISTS checkins(date TEXT PRIMARY KEY, created_at INTEGER);\n" +
@@ -106,9 +106,9 @@
     execute("UPDATE practice_sessions SET finished_at=?,correct_count=?,duration_sec=? WHERE id=?",
       [nowMs(), correct, durationSec, sessionId]);
   }
-  function addQuestionResult(sessionId, globalId, moduleName, keypoint, correct) {
-    insert("INSERT INTO question_results(session_id,created_at,global_id,module_name,keypoint,correct) VALUES(?,?,?,?,?,?)",
-      [sessionId, nowMs(), globalId, moduleName, keypoint, correct ? 1 : 0]);
+  function addQuestionResult(sessionId, globalId, moduleName, keypoint, correct, source) {
+    insert("INSERT INTO question_results(session_id,created_at,global_id,module_name,keypoint,correct,source) VALUES(?,?,?,?,?,?,?)",
+      [sessionId, nowMs(), globalId, moduleName, keypoint, correct ? 1 : 0, source || "practice"]);
   }
   function getWrongByGlobal(globalId) {
     return queryOne("SELECT * FROM wrong_questions WHERE global_id=?", [globalId]);
@@ -147,7 +147,20 @@
     } catch (e) { bytes = null; }
     db = bytes ? new SQL.Database(bytes) : new SQL.Database();
     db.exec(SCHEMA);
+    migrate();
     readyResolve();
+  }
+  /* 轻量迁移：为老库补充新增列（重复执行安全） */
+  function addColIfMissing(table, col, ddl) {
+    var cols = [];
+    db.exec("PRAGMA table_info(" + table + ")").forEach(function (rs) {
+      rs.values.forEach(function (v) { cols.push(String(v[1])); });
+    });
+    if (cols.indexOf(col) < 0) db.exec("ALTER TABLE " + table + " ADD COLUMN " + ddl);
+  }
+  function migrate() {
+    addColIfMissing("question_results", "source", "source TEXT DEFAULT 'practice'");
+    addColIfMissing("wrong_questions", "starred", "starred INTEGER DEFAULT 0");
   }
   function validateB64(b64) {
     var tmp;
@@ -174,6 +187,7 @@
     loadB64: function (b64) {
       db = new SQL.Database(bytesFromB64(b64));
       db.exec(SCHEMA);
+      migrate();
       schedulePersist();
     },
   };

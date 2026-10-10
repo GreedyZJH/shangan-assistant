@@ -537,3 +537,22 @@ body.theme-red .review-item,body.theme-red .stat,body.theme-red .msg.bot,
 body.theme-red .note-item,body.theme-red .note-preview,body.theme-red .task,
 body.theme-red .paper-item,body.theme-red .wrong-item,body.theme-red .side-item,
 body.theme-red .toast{background:#fdf5f5}
+
+/* ===================== V1.3 功能补丁（v24） ===================== */
+/* 错题星标 */
+.star-btn{position:absolute;right:8px;top:8px;width:22px;height:22px;border:0;
+  background:transparent;font-size:15px;color:#cbd2e0;cursor:pointer;line-height:1;
+  padding:0;display:flex;align-items:center;justify-content:center}
+.star-btn:hover{color:var(--orange);transform:scale(1.15)}
+.star-btn.on{color:var(--orange)}
+.wrong-item{position:relative}
+/* 今日总览条 */
+.today-strip{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.today-chip{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;
+  border-radius:16px;background:#fff;border:1px solid var(--line);
+  font-size:12px;color:var(--text);cursor:pointer;user-select:none}
+.today-chip:hover{border-color:#c2cbe0}
+.today-chip.accent{background:var(--blue-bg);border-color:#bfd2ff;color:var(--blue)}
+.today-chip.ok{background:var(--green-bg);border-color:#bbf0cf;color:var(--green)}
+/* 错题筛选下拉 */
+#wMinWrong{height:30px;padding:0 8px;font-size:12px}

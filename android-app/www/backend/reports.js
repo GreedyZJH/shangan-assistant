@@ -100,6 +100,15 @@
       [startTs, endTs]).s;
     var hours = Math.round(((sessSec + focusSec) / 3600) * 10) / 10;
 
+    var reviewRows = DB.queryOne(
+      "SELECT COUNT(*) total, COALESCE(SUM(correct),0) correct FROM question_results WHERE source='review' AND created_at>=? AND created_at<?",
+      [startTs, endTs]);
+    var reviewTotal = reviewRows.total, reviewCorrect = reviewRows.correct;
+    var reviewAccuracy = reviewTotal ? Math.round((reviewCorrect * 100) / reviewTotal) : 0;
+    var masteryGain = DB.queryOne(
+      "SELECT COALESCE(ROUND(AVG(mastery)),0) g FROM wrong_questions WHERE status='active' AND last_review_at IS NOT NULL AND last_review_at>=? AND last_review_at<?",
+      [startTs, endTs]).g;
+
     return {
       period: period,
       periodLabel: label,
@@ -110,6 +119,12 @@
       streak: streak(),
       modules: modules,
       wrongTrend: wrongTrend(),
+      review: {
+        total: reviewTotal,
+        correct: reviewCorrect,
+        accuracy: reviewAccuracy,
+        masteryAvg: parseInt(masteryGain, 10) || 0,
+      },
     };
   }
 
